@@ -95,8 +95,7 @@ public class BotCompiler {
         packageComDir.deleteOnExit();
         
         // Загружаем скомпилированный класс из нужной директории
-        try (URLClassLoader classLoader = new URLClassLoader(new URL[]{tempDir.toURI().toURL()})) {
-            return (Class<? extends Bot>) Class.forName("ru.pukpukov.territorywar." + className, true, classLoader);
-        }
+        URLClassLoader classLoader = new URLClassLoader(new URL[]{tempDir.toURI().toURL()});
+        return (Class<? extends Bot>) Class.forName("ru.pukpukov.territorywar." + className, true, classLoader);
     }
 }
