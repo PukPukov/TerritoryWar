@@ -1,6 +1,6 @@
-package ru.pukpukov;
+package ru.pukpukov.territorywar;
 
-import ru.pukpukov.api.Bot;
+import ru.pukpukov.territorywar.api.Bot;
 
 import javax.tools.*;
 import java.io.File;
@@ -24,13 +24,13 @@ public class BotCompiler {
     
     public static String sourceCode(String className, String userCode) {
         return """
-            package com.territorywar;
-            import com.territorywar.api.*;
+            package ru.pukpukov.territorywar;
+            import ru.pukpukov.territorywar.api.*;
             import java.lang.*;
             import java.util.*;
             
-            import static com.territorywar.api.Util.*;
-            import static com.territorywar.api.Constants.*;
+            import static ru.pukpukov.territorywar.api.Util.*;
+            import static ru.pukpukov.territorywar.api.Constants.*;
             
             public class %s implements Bot {
                 @Override

@@ -1,4 +1,4 @@
-package ru.pukpukov.api;
+package ru.pukpukov.territorywar.api;
 
 import java.util.Map;
 

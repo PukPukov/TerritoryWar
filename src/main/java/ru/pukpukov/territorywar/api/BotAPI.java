@@ -1,4 +1,4 @@
-package ru.pukpukov.api;
+package ru.pukpukov.territorywar.api;
 
 public interface BotAPI {
     

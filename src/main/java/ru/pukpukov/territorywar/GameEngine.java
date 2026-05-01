@@ -1,9 +1,9 @@
-package ru.pukpukov;
+package ru.pukpukov.territorywar;
 
-import ru.pukpukov.api.Bot;
-import ru.pukpukov.api.BotAPI;
-import ru.pukpukov.api.Constants;
-import ru.pukpukov.api.Direction;
+import ru.pukpukov.territorywar.api.Bot;
+import ru.pukpukov.territorywar.api.BotAPI;
+import ru.pukpukov.territorywar.api.Constants;
+import ru.pukpukov.territorywar.api.Direction;
 
 import java.util.HashMap;
 import java.util.Map;
