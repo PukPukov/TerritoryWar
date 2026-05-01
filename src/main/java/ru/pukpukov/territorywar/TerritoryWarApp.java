@@ -404,10 +404,8 @@ public class TerritoryWarApp extends Application {
                             currentBot2Class.getDeclaredConstructor().newInstance()
                         );
                         
-                        int failsafe = 3000;
-                        while (!engine.isGameOver() && failsafe > 0) {
+                        while (!engine.isGameOver()) {
                             engine.logicTick();
-                            failsafe--;
                         }
                         
                         int finishedCount = progress.incrementAndGet();
