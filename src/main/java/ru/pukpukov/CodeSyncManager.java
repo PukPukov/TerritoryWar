@@ -1,4 +1,4 @@
-package com.territorywar;
+package ru.pukpukov;
 
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;

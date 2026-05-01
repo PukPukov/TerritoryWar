@@ -1,6 +1,6 @@
-package com.territorywar;
+package ru.pukpukov;
 
-import com.territorywar.api.Bot;
+import ru.pukpukov.api.Bot;
 import javafx.animation.AnimationTimer;
 import javafx.application.Application;
 import javafx.application.Platform;

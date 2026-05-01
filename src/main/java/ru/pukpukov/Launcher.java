@@ -1,4 +1,4 @@
-package com.territorywar;
+package ru.pukpukov;
 
 public class Launcher {
     public static void main(String[] args) {

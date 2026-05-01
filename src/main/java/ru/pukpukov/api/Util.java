@@ -1,4 +1,4 @@
-package com.territorywar.api;
+package ru.pukpukov.api;
 
 import java.util.ArrayList;
 import java.util.Arrays;
