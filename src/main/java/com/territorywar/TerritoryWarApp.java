@@ -80,7 +80,7 @@ public class TerritoryWarApp extends Application {
         Button btnStart = new Button("▶ Старт");
         Button btnPause = new Button("Пауза");
         Button btnReset = new Button("Сброс");
-        speedSlider = new Slider(1, 150, 130);
+        speedSlider = new Slider(0, 100, 50);
         speedSlider.setPrefWidth(120);
         
         Button btnSim = new Button(SIM_COUNT + " симуляций");
@@ -187,22 +187,63 @@ public class TerritoryWarApp extends Application {
     
     private void setupGameLoop() {
         gameLoop = new AnimationTimer() {
+            private long lastUpdate = 0;
+            private long accumulatedTime = 0;
+            
             @Override
             public void handle(long now) {
-                long delayNs = (151 - (long)speedSlider.getValue()) * 1_000_000L;
-                if (now - lastTickTime > delayNs) {
+                if (lastUpdate == 0) {
+                    lastUpdate = now;
+                    return;
+                }
+                
+                long elapsedNs = now - lastUpdate;
+                lastUpdate = now;
+                
+                // Нормализуем значение ползунка от 0.0 до 1.0
+                double v = speedSlider.getValue() / 100.0;
+                
+                // Экспоненциальный рост: от 2 до 3000 ходов в секунду.
+                // На 50% скорости это будет плавно (около 75 ходов/сек).
+                double ticksPerSecond = 2.0 * Math.pow(1500.0, v);
+                long nsPerTick = (long) (1_000_000_000.0 / ticksPerSecond);
+                
+                accumulatedTime += elapsedNs;
+                
+                int ticksRan = 0;
+                // Разрешаем выполнять несколько логических шагов за один кадр отрисовки
+                // Ограничиваем 100 шагами за кадр, чтобы игра не зависла
+                while (accumulatedTime >= nsPerTick && ticksRan < 100) {
                     if (visualGame != null && !visualGame.isGameOver()) {
                         visualGame.logicTick();
-                        drawGame();
-                        updateScoreUI();
-                        if (visualGame.isGameOver()) {
-                            pauseGame();
-                            int winner = visualGame.getWinner();
-                            statusLabel.setText(winner == 0 ? "Ничья!" : "Победил Бот " + winner);
-                        }
+                        ticksRan++;
                     }
-                    lastTickTime = now;
+                    accumulatedTime -= nsPerTick;
                 }
+                
+                // Сбрасываем излишки времени при сильных лагах
+                if (ticksRan == 100) {
+                    accumulatedTime = 0;
+                }
+                
+                // Перерисовываем графику, только если состояние игры изменилось
+                if (ticksRan > 0) {
+                    drawGame();
+                    updateScoreUI();
+                    if (visualGame != null && visualGame.isGameOver()) {
+                        pauseGame();
+                        int winner = visualGame.getWinner();
+                        statusLabel.setText(winner == 0 ? "Ничья!" : "Победил Бот " + winner);
+                    }
+                }
+            }
+            
+            // Гарантируем чистый старт после паузы
+            @Override
+            public void start() {
+                lastUpdate = 0;
+                accumulatedTime = 0;
+                super.start();
             }
         };
     }
