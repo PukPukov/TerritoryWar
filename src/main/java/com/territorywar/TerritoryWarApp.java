@@ -66,7 +66,7 @@ public class TerritoryWarApp extends Application {
         statusLabel.setFont(Font.font("System", 16));
         scoreBoard.getChildren().addAll(score1Label, statusLabel, score2Label);
         
-        canvas = new Canvas(GameEngine.COLS * cellSize, GameEngine.ROWS * cellSize);
+        canvas = new Canvas(0, 0);
         gc = canvas.getGraphicsContext2D();
         StackPane canvasContainer = new StackPane(canvas);
         canvasContainer.setStyle("-fx-border-color: #ccc; -fx-border-width: 2px; -fx-background-color: white;");
@@ -131,8 +131,6 @@ public class TerritoryWarApp extends Application {
         primaryStage.setMinWidth(800);
         primaryStage.setMinHeight(500);
         primaryStage.show();
-        
-        Platform.runLater(this::drawEmptyGrid);
     }
     
     private void resizeCanvas(Pane container) {
