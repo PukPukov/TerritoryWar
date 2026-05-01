@@ -2,7 +2,6 @@ package ru.pukpukov.territorywar;
 
 import ru.pukpukov.territorywar.api.Bot;
 import ru.pukpukov.territorywar.api.BotAPI;
-import ru.pukpukov.territorywar.api.Constants;
 import ru.pukpukov.territorywar.api.Direction;
 
 import java.util.HashMap;
@@ -11,11 +10,13 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static ru.pukpukov.territorywar.api.Constants.FIELD_SIZE;
+
 public class GameEngine {
     private static final Logger log = Logger.getLogger(GameEngine.class.getName());
     
-    public static final int COLS = Constants.FIELD_SIZE;
-    public static final int ROWS = Constants.FIELD_SIZE;
+    public static final int COLS = FIELD_SIZE;
+    public static final int ROWS = FIELD_SIZE;
     private static final int MAX_CELLS = COLS * ROWS;
     public static final int MAX_IDLE_TICKS = 128;
     
@@ -93,8 +94,9 @@ public class GameEngine {
     }
     
     public GameEngine(Bot logic1, Bot logic2) {
-        bot1 = new BotState(PLAYER_1, 10, 10, logic1);
-        bot2 = new BotState(PLAYER_2, 39, 39, logic2);
+        int distance = (int) (FIELD_SIZE * 0.15);
+        bot1 = new BotState(PLAYER_1, distance, distance, logic1);
+        bot2 = new BotState(PLAYER_2, FIELD_SIZE-distance-1, FIELD_SIZE-distance-1, logic2);
         grid[bot1.x][bot1.y] = PLAYER_1;
         grid[bot2.x][bot2.y] = PLAYER_2;
         
