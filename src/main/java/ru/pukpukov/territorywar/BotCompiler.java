@@ -28,6 +28,7 @@ public class BotCompiler {
             import ru.pukpukov.territorywar.api.*;
             import java.lang.*;
             import java.util.*;
+            import java.util.concurrent.*;
             
             import static ru.pukpukov.territorywar.api.Util.*;
             import static ru.pukpukov.territorywar.api.Constants.*;
