@@ -4,7 +4,8 @@ import com.territorywar.api.Bot;
 import com.territorywar.api.BotAPI;
 import com.territorywar.api.Direction;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -14,6 +15,7 @@ public class GameEngine {
     
     public static final int COLS = 50;
     public static final int ROWS = 50;
+    private static final int MAX_CELLS = COLS * ROWS;
     public static final int MAX_IDLE_TICKS = 32;
     
     public static final int EMPTY = 0;
@@ -29,9 +31,24 @@ public class GameEngine {
     private int totalClaimedCells = 2;
     private int ticksWithoutClaim = 0;
     private boolean isGameOver = false;
-    
-    // Переменная для хранения очереди хода
     private boolean bot1GoesFirst;
+    
+    // --- ОПТИМИЗАЦИЯ ПАМЯТИ ---
+    // Переиспользуемые массивы для Flood Fill, чтобы не нагружать Garbage Collector.
+    // Максимальный размер области равен размеру всего поля (2500 клеток).
+    private final int[] queueX = new int[MAX_CELLS];
+    private final int[] queueY = new int[MAX_CELLS];
+    private final int[] regionX = new int[MAX_CELLS];
+    private final int[] regionY = new int[MAX_CELLS];
+    
+    // visitToken позволяет не очищать массив visited нулями. 
+    // Мы просто увеличиваем токен. Если visited[x][y] == visitToken, клетка посещена.
+    private final int[][] visited = new int[COLS][ROWS];
+    private int visitToken = 0;
+    
+    // Статические смещения для соседей (Вверх, Вниз, Влево, Вправо)
+    private static final int[] DX = {0, 0, -1, 1};
+    private static final int[] DY = {-1, 1, 0, 0};
     
     private class BotState implements BotAPI {
         final int id;
@@ -73,8 +90,6 @@ public class GameEngine {
         grid[bot1.x][bot1.y] = PLAYER_1;
         grid[bot2.x][bot2.y] = PLAYER_2;
         
-        // Случайно определяем, кто походит самым первым в этой игре.
-        // Используем ThreadLocalRandom для безопасной параллельной симуляции.
         bot1GoesFirst = ThreadLocalRandom.current().nextBoolean();
     }
     
@@ -83,7 +98,6 @@ public class GameEngine {
         
         int claimedThisTick = 0;
         
-        // Чередование ходов в зависимости от флага
         if (bot1GoesFirst) {
             claimedThisTick += applyMove(bot1, getMoveSafe(bot1));
             claimedThisTick += applyMove(bot2, getMoveSafe(bot2));
@@ -92,10 +106,8 @@ public class GameEngine {
             claimedThisTick += applyMove(bot1, getMoveSafe(bot1));
         }
         
-        // Меняем очередь хода для следующего тика
         bot1GoesFirst = !bot1GoesFirst;
         
-        // Автозахват территорий (Flood Fill)
         claimedThisTick += floodFillAutoClaim();
         
         if (claimedThisTick > 0) {
@@ -105,7 +117,7 @@ public class GameEngine {
             ticksWithoutClaim++;
         }
         
-        if (ticksWithoutClaim >= MAX_IDLE_TICKS || totalClaimedCells >= COLS * ROWS) {
+        if (ticksWithoutClaim >= MAX_IDLE_TICKS || totalClaimedCells >= MAX_CELLS) {
             isGameOver = true;
         }
     }
@@ -114,7 +126,7 @@ public class GameEngine {
         try {
             return botState.logic.move(botState);
         } catch (Exception e) {
-            log.log(Level.WARNING, "Ошибка выполнения кода у Бота " + botState.id + ". Бот пропускает ход.", e);
+            log.log(Level.WARNING, "Ошибка выполнения кода у Бота " + botState.id, e);
             return null;
         }
     }
@@ -146,51 +158,72 @@ public class GameEngine {
     }
     
     private int floodFillAutoClaim() {
-        boolean[][] visited = new boolean[COLS][ROWS];
         int cellsClaimed = 0;
+        visitToken++; // Обновляем токен для новой заливки
         
         for (int sx = 0; sx < COLS; sx++) {
             for (int sy = 0; sy < ROWS; sy++) {
-                if (grid[sx][sy] == EMPTY && !visited[sx][sy]) {
-                    List<int[]> regionCells = new ArrayList<>();
-                    Set<Integer> borderingPlayers = new HashSet<>();
-                    Queue<int[]> queue = new LinkedList<>();
+                if (grid[sx][sy] == EMPTY && visited[sx][sy] != visitToken) {
                     
-                    queue.add(new int[]{sx, sy});
-                    visited[sx][sy] = true;
+                    int qHead = 0; // Читаем отсюда
+                    int qTail = 0; // Пишем сюда
+                    int rCount = 0; // Размер текущего найденного региона
                     
-                    while (!queue.isEmpty()) {
-                        int[] curr = queue.poll();
-                        regionCells.add(curr);
+                    boolean borders1 = false;
+                    boolean borders2 = false;
+                    
+                    // Добавляем стартовую клетку в очередь
+                    queueX[qTail] = sx;
+                    queueY[qTail] = sy;
+                    qTail++;
+                    visited[sx][sy] = visitToken;
+                    
+                    // Быстрый BFS (поиск в ширину) на плоских массивах
+                    while (qHead < qTail) {
+                        int cx = queueX[qHead];
+                        int cy = queueY[qHead];
+                        qHead++;
                         
-                        int[][] neighbors = {
-                            {curr[0], curr[1] - 1}, {curr[0], curr[1] + 1},
-                            {curr[0] - 1, curr[1]}, {curr[0] + 1, curr[1]}
-                        };
+                        // Сохраняем клетку в список региона
+                        regionX[rCount] = cx;
+                        regionY[rCount] = cy;
+                        rCount++;
                         
-                        for (int[] n : neighbors) {
-                            if (isInBounds(n[0], n[1])) {
-                                int cellVal = grid[n[0]][n[1]];
+                        // Проверяем 4 соседей без аллокации массива внутри цикла
+                        for (int i = 0; i < 4; i++) {
+                            int nx = cx + DX[i];
+                            int ny = cy + DY[i];
+                            
+                            if (isInBounds(nx, ny)) {
+                                int cellVal = grid[nx][ny];
                                 if (cellVal == EMPTY) {
-                                    if (!visited[n[0]][n[1]]) {
-                                        visited[n[0]][n[1]] = true;
-                                        queue.add(n);
+                                    if (visited[nx][ny] != visitToken) {
+                                        visited[nx][ny] = visitToken;
+                                        queueX[qTail] = nx;
+                                        queueY[qTail] = ny;
+                                        qTail++;
                                     }
-                                } else {
-                                    borderingPlayers.add(cellVal);
+                                } else if (cellVal == PLAYER_1) {
+                                    borders1 = true;
+                                } else if (cellVal == PLAYER_2) {
+                                    borders2 = true;
                                 }
                             }
                         }
                     }
                     
-                    if (borderingPlayers.size() == 1) {
-                        int winnerId = borderingPlayers.iterator().next();
-                        for (int[] cell : regionCells) {
-                            grid[cell[0]][cell[1]] = winnerId;
+                    // Исключающее ИЛИ (XOR). Если область окружена строго одним игроком:
+                    if (borders1 ^ borders2) {
+                        int winnerId = borders1 ? PLAYER_1 : PLAYER_2;
+                        
+                        // Присваиваем территорию
+                        for (int r = 0; r < rCount; r++) {
+                            grid[regionX[r]][regionY[r]] = winnerId;
                         }
-                        if (winnerId == PLAYER_1) score1 += regionCells.size();
-                        else score2 += regionCells.size();
-                        cellsClaimed += regionCells.size();
+                        
+                        if (winnerId == PLAYER_1) score1 += rCount;
+                        else score2 += rCount;
+                        cellsClaimed += rCount;
                     }
                 }
             }
