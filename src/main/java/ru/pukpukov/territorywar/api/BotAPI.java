@@ -2,6 +2,7 @@ package ru.pukpukov.territorywar.api;
 
 public interface BotAPI {
     
+    int tickCount();
     int id();
     int x();
     int y();

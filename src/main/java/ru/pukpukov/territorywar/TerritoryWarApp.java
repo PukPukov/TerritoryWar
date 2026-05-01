@@ -170,6 +170,7 @@ public class TerritoryWarApp extends Application {
             Код в поле ввода является реализацией метода public Direction move(BotAPI api, Map<String, Object> mem).
             
             Доступные методы BotAPI:
+            • api.tickCount() - возвращает номер тика (0, 1, 2, 3, 4...).
             • api.id() - возвращает ваш ID (1 или 2).
             • api.x() / api.y() - ваши текущие координаты.
             • api.get(x, y) - значение клетки: 0 (пусто), 1 (Красный), 2 (Синий), -1 (край карты).

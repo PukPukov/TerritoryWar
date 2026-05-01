@@ -48,6 +48,7 @@ public class GameEngine {
     
     private class BotState implements BotAPI {
         final int id;
+        int tickCount = 0;
         int x, y;
         final Bot logic;
         final Map<String, Object> memory = new HashMap<>();
@@ -57,6 +58,11 @@ public class GameEngine {
             this.x = startX;
             this.y = startY;
             this.logic = logic;
+        }
+        
+        @Override
+        public int tickCount() {
+            return tickCount;
         }
         
         @Override public int id() { return id; }
@@ -136,6 +142,7 @@ public class GameEngine {
     }
     
     private int applyMove(BotState bot, Direction dir) {
+        bot.tickCount++;
         if (dir == null) return 0;
         int nx = bot.x, ny = bot.y;
         
