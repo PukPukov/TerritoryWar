@@ -83,7 +83,6 @@ public class TerritoryWarApp extends Application {
         speedSlider = new Slider(1, 150, 130);
         speedSlider.setPrefWidth(120);
         
-        // Кнопка симуляции использует константу
         Button btnSim = new Button(SIM_COUNT + " симуляций");
         btnSim.setStyle("-fx-base: #9b59b6; -fx-text-fill: white;");
         
@@ -96,13 +95,13 @@ public class TerritoryWarApp extends Application {
         
         TitledPane rulesPane = createRulesPane();
         
-        bot1CodeArea = createCodeArea(getBot1DefaultCode());
-        bot2CodeArea = createCodeArea(getBot2DefaultCode());
+        // Создаем пустые поля, текст подтянется из файлов
+        bot1CodeArea = createCodeArea("");
+        bot2CodeArea = createCodeArea("");
         
         VBox box1 = new VBox(5, createScoreLabel("Код Бота 1 (Красный)", COLOR_BOT1), bot1CodeArea);
         VBox box2 = new VBox(5, createScoreLabel("Код Бота 2 (Синий)", COLOR_BOT2), bot2CodeArea);
         
-        // Разрешаем контейнерам боксов растягиваться (для SplitPane)
         VBox.setVgrow(box1, Priority.ALWAYS);
         VBox.setVgrow(box2, Priority.ALWAYS);
         
@@ -122,6 +121,10 @@ public class TerritoryWarApp extends Application {
         btnSim.setOnAction(e -> runParallelSimulations(primaryStage));
         
         setupGameLoop();
+        
+        // --- АВТОСИНХРОНИЗАЦИЯ КОДА С ДИСКОМ ---
+        CodeSyncManager syncManager = new CodeSyncManager(bot1CodeArea, bot2CodeArea);
+        syncManager.init(getBot1DefaultCode(), getBot2DefaultCode());
         
         Scene scene = new Scene(mainSplit, 1100, 700);
         primaryStage.setScene(scene);
@@ -150,8 +153,8 @@ public class TerritoryWarApp extends Application {
         return label;
     }
     
-    private TextArea createCodeArea(String defaultCode) {
-        TextArea area = new TextArea(defaultCode);
+    private TextArea createCodeArea(String text) {
+        TextArea area = new TextArea(text);
         area.setFont(Font.font("Monospaced", 14));
         VBox.setVgrow(area, Priority.ALWAYS);
         return area;
@@ -173,10 +176,6 @@ public class TerritoryWarApp extends Application {
             • api.x() / api.y() - ваши текущие координаты.
             • api.get(x, y) - значение клетки: 0 (пусто), 1 (Красный), 2 (Синий), -1 (край карты).
             • api.next(Direction dir) - возвращает значение клетки, находящейся по направлению dir.
-            
-            Параметр mem предназначен для сохранения переменных между ходами.
-            
-            В поле видимости добавлены импорты классов API ботов, импорт java.util, а также статический импорт класса Util.
             """);
         rulesText.setEditable(false);
         rulesText.setWrapText(true);
@@ -424,5 +423,4 @@ public class TerritoryWarApp extends Application {
     public static void main(String[] args) {
         launch(args);
     }
-    
 }
