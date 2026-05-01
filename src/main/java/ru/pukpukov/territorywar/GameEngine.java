@@ -49,6 +49,7 @@ public class GameEngine {
     
     private class BotState implements BotAPI {
         final int id;
+        BotState enemy;
         int tickCount = 0;
         int x, y;
         final Bot logic;
@@ -59,6 +60,11 @@ public class GameEngine {
             this.x = startX;
             this.y = startY;
             this.logic = logic;
+        }
+        
+        @Override
+        public BotAPI enemy() {
+            return this.enemy;
         }
         
         @Override
@@ -97,6 +103,8 @@ public class GameEngine {
         int distance = (int) (FIELD_SIZE * 0.15);
         bot1 = new BotState(PLAYER_1, distance, distance, logic1);
         bot2 = new BotState(PLAYER_2, FIELD_SIZE-distance-1, FIELD_SIZE-distance-1, logic2);
+        bot1.enemy = bot2;
+        bot2.enemy = bot1;
         grid[bot1.x][bot1.y] = PLAYER_1;
         grid[bot2.x][bot2.y] = PLAYER_2;
         
