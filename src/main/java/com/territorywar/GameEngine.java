@@ -5,6 +5,7 @@ import com.territorywar.api.BotAPI;
 import com.territorywar.api.Direction;
 
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -28,6 +29,9 @@ public class GameEngine {
     private int totalClaimedCells = 2;
     private int ticksWithoutClaim = 0;
     private boolean isGameOver = false;
+    
+    // Переменная для хранения очереди хода
+    private boolean bot1GoesFirst;
     
     private class BotState implements BotAPI {
         final int id;
@@ -68,6 +72,10 @@ public class GameEngine {
         bot2 = new BotState(PLAYER_2, 39, 39, logic2);
         grid[bot1.x][bot1.y] = PLAYER_1;
         grid[bot2.x][bot2.y] = PLAYER_2;
+        
+        // Случайно определяем, кто походит самым первым в этой игре.
+        // Используем ThreadLocalRandom для безопасной параллельной симуляции.
+        bot1GoesFirst = ThreadLocalRandom.current().nextBoolean();
     }
     
     public void logicTick() {
@@ -75,8 +83,19 @@ public class GameEngine {
         
         int claimedThisTick = 0;
         
-        claimedThisTick += applyMove(bot1, getMoveSafe(bot1));
-        claimedThisTick += applyMove(bot2, getMoveSafe(bot2));
+        // Чередование ходов в зависимости от флага
+        if (bot1GoesFirst) {
+            claimedThisTick += applyMove(bot1, getMoveSafe(bot1));
+            claimedThisTick += applyMove(bot2, getMoveSafe(bot2));
+        } else {
+            claimedThisTick += applyMove(bot2, getMoveSafe(bot2));
+            claimedThisTick += applyMove(bot1, getMoveSafe(bot1));
+        }
+        
+        // Меняем очередь хода для следующего тика
+        bot1GoesFirst = !bot1GoesFirst;
+        
+        // Автозахват территорий (Flood Fill)
         claimedThisTick += floodFillAutoClaim();
         
         if (claimedThisTick > 0) {
