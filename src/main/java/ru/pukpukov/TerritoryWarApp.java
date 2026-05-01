@@ -253,14 +253,31 @@ public class TerritoryWarApp extends Application {
     }
     
     private boolean compileBots() {
+        currentBot1Class = tryCompile("1", bot1CodeArea.getText());
+        if (currentBot1Class == null) return false;
+        currentBot2Class = tryCompile("2", bot2CodeArea.getText());
+        if (currentBot2Class == null) return false;
+        return true;
+    }
+    
+    private Class<? extends Bot> tryCompile(String botName, String text) {
+        String className = BotCompiler.className();
+        String sourceCode = BotCompiler.sourceCode(className, text);
         try {
-            currentBot1Class = BotCompiler.compileBot(bot1CodeArea.getText());
-            currentBot2Class = BotCompiler.compileBot(bot2CodeArea.getText());
-            return true;
-        } catch (Exception ex) {
-            showErrorDialog("Ошибка компиляции", ex.getMessage());
-            return false;
+            return BotCompiler.compileBot(className, sourceCode);
+        } catch (Exception exception) {
+            StringBuilder fullCode = new StringBuilder();
+            int i = 0;
+            for (var line : sourceCode.lines().toList()) {
+                fullCode.append(i);
+                fullCode.append(": ");
+                fullCode.append(line);
+                fullCode.append("\n");
+                i++;
+            }
+            showErrorDialog("Ошибка компиляции бота "+botName, exception.getMessage()+"\n"+fullCode);
         }
+        return null;
     }
     
     private void showErrorDialog(String header, String content) {

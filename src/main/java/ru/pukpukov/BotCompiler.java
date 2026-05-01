@@ -18,16 +18,12 @@ public class BotCompiler {
     private static final Logger log = Logger.getLogger(BotCompiler.class.getName());
     private static final AtomicInteger classCounter = new AtomicInteger(0);
     
-    @SuppressWarnings("unchecked")
-    public static Class<? extends Bot> compileBot(String userCode) throws Exception {
-        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-        if (compiler == null) {
-            throw new RuntimeException("JavaCompiler не найден. Убедитесь, что используете JDK, а не JRE.");
-        }
-        
-        String className = "RuntimeBot" + classCounter.incrementAndGet();
-        
-        String sourceCode = """
+    public static String className() {
+        return "RuntimeBot" + classCounter.incrementAndGet();
+    }
+    
+    public static String sourceCode(String className, String userCode) {
+        return """
             package com.territorywar;
             import com.territorywar.api.*;
             import java.lang.*;
@@ -43,6 +39,14 @@ public class BotCompiler {
                 }
             }
             """.formatted(className, userCode);
+    }
+    
+    @SuppressWarnings("unchecked")
+    public static Class<? extends Bot> compileBot(String className, String sourceCode) throws Exception {
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        if (compiler == null) {
+            throw new RuntimeException("JavaCompiler не найден. Убедитесь, что используете JDK, а не JRE.");
+        }
         
         File tempDir = Files.createTempDirectory("bots").toFile();
         tempDir.deleteOnExit();
@@ -74,11 +78,8 @@ public class BotCompiler {
             if (!success) {
                 StringBuilder errorMsg = new StringBuilder("Ошибка в синтаксисе вашего кода:\n\n");
                 for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
-                    // Компенсируем сдвиг строк из-за шаблона (package + imports)
-                    long lineNumber = diagnostic.getLineNumber() - 8;
-                    errorMsg.append(String.format("Строка %d: %s\n", lineNumber, diagnostic.getMessage(null)));
+                    errorMsg.append(String.format("Строка %d: %s\n", diagnostic.getLineNumber(), diagnostic.getMessage(null)));
                 }
-                
                 log.severe(errorMsg.toString());
                 throw new RuntimeException(errorMsg.toString());
             }
