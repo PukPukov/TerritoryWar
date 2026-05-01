@@ -69,13 +69,19 @@ public class GameEngine {
         }
         
         @Override
-        public int next(Direction dir) {
-            int nx = x, ny = y;
+        public int nextX(Direction dir) {
+            int nx = x;
+            if (dir == Direction.LEFT) nx--;
+            else if (dir == Direction.RIGHT) nx++;
+            return nx;
+        }
+        
+        @Override
+        public int nextY(Direction dir) {
+            int ny = y;
             if (dir == Direction.UP) ny--;
             else if (dir == Direction.DOWN) ny++;
-            else if (dir == Direction.LEFT) nx--;
-            else if (dir == Direction.RIGHT) nx++;
-            return get(nx, ny);
+            return ny;
         }
         
     }

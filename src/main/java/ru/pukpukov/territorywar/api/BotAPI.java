@@ -6,7 +6,12 @@ public interface BotAPI {
     int x();
     int y();
     int get(int x, int y);
-    int next(Direction dir);
+    int nextX(Direction dir);
+    int nextY(Direction dir);
+    
+    default int next(Direction dir) {
+        return get(nextX(dir), nextY(dir));
+    }
     
     default boolean canMoveTo(Direction direction) {
         int data = this.next(direction);
