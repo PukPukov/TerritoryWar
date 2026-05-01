@@ -9,9 +9,13 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Logger;
 
 public class BotCompiler {
+    private static final Logger log = Logger.getLogger(BotCompiler.class.getName());
     private static final AtomicInteger classCounter = new AtomicInteger(0);
     
     @SuppressWarnings("unchecked")
@@ -23,51 +27,74 @@ public class BotCompiler {
         
         String className = "RuntimeBot" + classCounter.incrementAndGet();
         
-        String sourceCode = "package com.territorywar;\n" +
-            "import com.territorywar.api.*;\n" +
-            "import java.util.*;\n" +
-            "public class " + className + " implements Bot {\n" +
-            "    @Override public Direction move(BotAPI api) {\n" +
-            userCode + "\n" +
-            "    }\n" +
-            "}\n";
+        String sourceCode = """
+            package com.territorywar;
+            import com.territorywar.api.*;
+            import java.util.*;
+            
+            public class %s implements Bot {
+                @Override
+                public Direction move(BotAPI api) {
+            %s
+                }
+            }
+            """.formatted(className, userCode);
         
-        // Создаем временную директорию
         File tempDir = Files.createTempDirectory("bots").toFile();
         tempDir.deleteOnExit();
         
         File sourceFile = new File(tempDir, className + ".java");
-        sourceFile.deleteOnExit(); // Удаляем исходник при закрытии
+        sourceFile.deleteOnExit();
         
         try (FileWriter writer = new FileWriter(sourceFile)) {
             writer.write(sourceCode);
         }
         
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
-        StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, null, null);
-        
-        Iterable<? extends JavaFileObject> compilationUnits = fileManager.getJavaFileObjectsFromFiles(Arrays.asList(sourceFile));
-        JavaCompiler.CompilationTask task = compiler.getTask(null, fileManager, diagnostics, null, null, compilationUnits);
-        
-        boolean success = task.call();
-        fileManager.close();
-        
-        if (!success) {
-            StringBuilder errorMsg = new StringBuilder("Ошибка компиляции:\n");
-            for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
-                errorMsg.append("Строка ").append(diagnostic.getLineNumber() - 5) // Компенсируем добавленные импорты
-                    .append(": ").append(diagnostic.getMessage(null)).append("\n");
+        try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, null, null)) {
+            
+            String classPath = System.getProperty("java.class.path");
+            
+            // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Добавлен аргумент "-d", чтобы компилятор 
+            // автоматически создал иерархию папок для пакета com.territorywar
+            List<String> options = Arrays.asList(
+                "-classpath", classPath,
+                "-d", tempDir.getAbsolutePath()
+            );
+            
+            Iterable<? extends JavaFileObject> compilationUnits = fileManager.getJavaFileObjectsFromFiles(Collections.singletonList(sourceFile));
+            JavaCompiler.CompilationTask task = compiler.getTask(null, fileManager, diagnostics, options, null, compilationUnits);
+            
+            boolean success = task.call();
+            
+            if (!success) {
+                StringBuilder errorMsg = new StringBuilder("Ошибка в синтаксисе вашего кода:\n\n");
+                for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
+                    // Компенсируем сдвиг строк из-за шаблона (package + imports)
+                    long lineNumber = diagnostic.getLineNumber() - 8;
+                    errorMsg.append(String.format("Строка %d: %s\n", lineNumber, diagnostic.getMessage(null)));
+                }
+                
+                log.severe(errorMsg.toString());
+                throw new RuntimeException(errorMsg.toString());
             }
-            throw new RuntimeException(errorMsg.toString());
         }
         
-        // Убеждаемся, что сгенерированный .class файл тоже будет удален
-        File classFile = new File(tempDir, className + ".class");
-        classFile.deleteOnExit();
+        // Помечаем файлы и папки на удаление при закрытии игры, чтобы не мусорить на диске
+        File packageComDir = new File(tempDir, "com");
+        File packageTerritoryWarDir = new File(packageComDir, "territorywar");
+        File classFile = new File(packageTerritoryWarDir, className + ".class");
         
-        // Загружаем скомпилированный класс
+        classFile.deleteOnExit();
+        packageTerritoryWarDir.deleteOnExit();
+        packageComDir.deleteOnExit();
+        
+        // Загружаем скомпилированный класс из нужной директории
         try (URLClassLoader classLoader = new URLClassLoader(new URL[]{tempDir.toURI().toURL()})) {
             return (Class<? extends Bot>) Class.forName("com.territorywar." + className, true, classLoader);
+        } catch (ClassNotFoundException ex) {
+            // Перехватываем, если вдруг файл все равно не лег куда надо (на будущее)
+            throw new RuntimeException("Внутренняя ошибка загрузки скомпилированного класса: " + ex.getMessage(), ex);
         }
     }
 }
