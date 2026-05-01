@@ -275,7 +275,7 @@ public class TerritoryWarApp extends Application {
                 fullCode.append("\n");
                 i++;
             }
-            showErrorDialog("Ошибка компиляции бота "+botName, exception.getMessage()+"\n"+fullCode);
+            showErrorDialog("Ошибка компиляции бота "+botName, exception.getClass().getCanonicalName()+"\n"+exception.getMessage()+"\n"+fullCode);
         }
         return null;
     }

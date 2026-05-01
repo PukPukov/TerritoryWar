@@ -97,9 +97,6 @@ public class BotCompiler {
         // Загружаем скомпилированный класс из нужной директории
         try (URLClassLoader classLoader = new URLClassLoader(new URL[]{tempDir.toURI().toURL()})) {
             return (Class<? extends Bot>) Class.forName("com.territorywar." + className, true, classLoader);
-        } catch (ClassNotFoundException ex) {
-            // Перехватываем, если вдруг файл все равно не лег куда надо (на будущее)
-            throw new RuntimeException("Внутренняя ошибка загрузки скомпилированного класса: " + ex.getMessage(), ex);
         }
     }
 }
