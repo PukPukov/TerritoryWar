@@ -33,6 +33,7 @@ public class BotCompiler {
             import java.util.*;
             
             import static com.territorywar.api.Util.*;
+            import static com.territorywar.api.Constants.*;
             
             public class %s implements Bot {
                 @Override

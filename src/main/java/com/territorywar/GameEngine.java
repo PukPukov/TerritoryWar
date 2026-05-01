@@ -2,6 +2,7 @@ package com.territorywar;
 
 import com.territorywar.api.Bot;
 import com.territorywar.api.BotAPI;
+import com.territorywar.api.Constants;
 import com.territorywar.api.Direction;
 
 import java.util.HashMap;
@@ -13,8 +14,8 @@ import java.util.logging.Logger;
 public class GameEngine {
     private static final Logger log = Logger.getLogger(GameEngine.class.getName());
     
-    public static final int COLS = 200;
-    public static final int ROWS = 200;
+    public static final int COLS = Constants.FIELD_SIZE;
+    public static final int ROWS = Constants.FIELD_SIZE;
     private static final int MAX_CELLS = COLS * ROWS;
     public static final int MAX_IDLE_TICKS = 128;
     
