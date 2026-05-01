@@ -267,7 +267,7 @@ public class TerritoryWarApp extends Application {
             return BotCompiler.compileBot(className, sourceCode);
         } catch (Exception exception) {
             StringBuilder fullCode = new StringBuilder();
-            int i = 0;
+            int i = 1;
             for (var line : sourceCode.lines().toList()) {
                 fullCode.append(i);
                 fullCode.append(": ");
