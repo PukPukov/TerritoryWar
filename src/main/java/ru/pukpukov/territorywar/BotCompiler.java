@@ -76,7 +76,7 @@ public class BotCompiler {
             boolean success = task.call();
             
             if (!success) {
-                StringBuilder errorMsg = new StringBuilder("Ошибка в синтаксисе вашего кода:\n\n");
+                StringBuilder errorMsg = new StringBuilder("Ошибка компиляции:\n\n");
                 for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
                     errorMsg.append(String.format("Строка %d: %s\n", diagnostic.getLineNumber(), diagnostic.getMessage(null)));
                 }
