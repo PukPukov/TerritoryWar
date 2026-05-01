@@ -13,10 +13,10 @@ import java.util.logging.Logger;
 public class GameEngine {
     private static final Logger log = Logger.getLogger(GameEngine.class.getName());
     
-    public static final int COLS = 50;
-    public static final int ROWS = 50;
+    public static final int COLS = 200;
+    public static final int ROWS = 200;
     private static final int MAX_CELLS = COLS * ROWS;
-    public static final int MAX_IDLE_TICKS = 32;
+    public static final int MAX_IDLE_TICKS = 128;
     
     public static final int EMPTY = 0;
     public static final int PLAYER_1 = 1;
@@ -33,20 +33,15 @@ public class GameEngine {
     private boolean isGameOver = false;
     private boolean bot1GoesFirst;
     
-    // --- ОПТИМИЗАЦИЯ ПАМЯТИ ---
-    // Переиспользуемые массивы для Flood Fill, чтобы не нагружать Garbage Collector.
-    // Максимальный размер области равен размеру всего поля (2500 клеток).
+    // Переиспользуемые массивы для Flood Fill
     private final int[] queueX = new int[MAX_CELLS];
     private final int[] queueY = new int[MAX_CELLS];
     private final int[] regionX = new int[MAX_CELLS];
     private final int[] regionY = new int[MAX_CELLS];
     
-    // visitToken позволяет не очищать массив visited нулями. 
-    // Мы просто увеличиваем токен. Если visited[x][y] == visitToken, клетка посещена.
     private final int[][] visited = new int[COLS][ROWS];
     private int visitToken = 0;
     
-    // Статические смещения для соседей (Вверх, Вниз, Влево, Вправо)
     private static final int[] DX = {0, 0, -1, 1};
     private static final int[] DY = {-1, 1, 0, 0};
     
@@ -107,8 +102,6 @@ public class GameEngine {
         
         bot1GoesFirst = !bot1GoesFirst;
         
-        claimedThisTick += floodFillAutoClaim();
-        
         if (claimedThisTick > 0) {
             ticksWithoutClaim = 0;
             totalClaimedCells += claimedThisTick;
@@ -116,8 +109,12 @@ public class GameEngine {
             ticksWithoutClaim++;
         }
         
+        // Проверка окончания игры
         if (ticksWithoutClaim >= MAX_IDLE_TICKS || totalClaimedCells >= MAX_CELLS) {
             isGameOver = true;
+            
+            // ФЛУД ФИЛЛ ВЫПОЛНЯЕТСЯ ТОЛЬКО ОДИН РАЗ В САМОМ КОНЦЕ
+            floodFillAutoClaim();
         }
     }
     
@@ -156,39 +153,34 @@ public class GameEngine {
         return 0;
     }
     
-    private int floodFillAutoClaim() {
-        int cellsClaimed = 0;
-        visitToken++; // Обновляем токен для новой заливки
+    private void floodFillAutoClaim() {
+        visitToken++;
         
         for (int sx = 0; sx < COLS; sx++) {
             for (int sy = 0; sy < ROWS; sy++) {
                 if (grid[sx][sy] == EMPTY && visited[sx][sy] != visitToken) {
                     
-                    int qHead = 0; // Читаем отсюда
-                    int qTail = 0; // Пишем сюда
-                    int rCount = 0; // Размер текущего найденного региона
+                    int qHead = 0;
+                    int qTail = 0;
+                    int rCount = 0;
                     
                     boolean borders1 = false;
                     boolean borders2 = false;
                     
-                    // Добавляем стартовую клетку в очередь
                     queueX[qTail] = sx;
                     queueY[qTail] = sy;
                     qTail++;
                     visited[sx][sy] = visitToken;
                     
-                    // Быстрый BFS (поиск в ширину) на плоских массивах
                     while (qHead < qTail) {
                         int cx = queueX[qHead];
                         int cy = queueY[qHead];
                         qHead++;
                         
-                        // Сохраняем клетку в список региона
                         regionX[rCount] = cx;
                         regionY[rCount] = cy;
                         rCount++;
                         
-                        // Проверяем 4 соседей без аллокации массива внутри цикла
                         for (int i = 0; i < 4; i++) {
                             int nx = cx + DX[i];
                             int ny = cy + DY[i];
@@ -211,23 +203,19 @@ public class GameEngine {
                         }
                     }
                     
-                    // Исключающее ИЛИ (XOR). Если область окружена строго одним игроком:
                     if (borders1 ^ borders2) {
                         int winnerId = borders1 ? PLAYER_1 : PLAYER_2;
                         
-                        // Присваиваем территорию
                         for (int r = 0; r < rCount; r++) {
                             grid[regionX[r]][regionY[r]] = winnerId;
                         }
                         
                         if (winnerId == PLAYER_1) score1 += rCount;
                         else score2 += rCount;
-                        cellsClaimed += rCount;
                     }
                 }
             }
         }
-        return cellsClaimed;
     }
     
     private boolean isInBounds(int x, int y) {

@@ -25,7 +25,7 @@ import java.util.stream.IntStream;
 public class TerritoryWarApp extends Application {
     private static final Logger log = Logger.getLogger(TerritoryWarApp.class.getName());
     
-    private static final int SIM_COUNT = 1000;
+    private static final int SIM_COUNT = 10000;
     
     private Canvas canvas;
     private GraphicsContext gc;
