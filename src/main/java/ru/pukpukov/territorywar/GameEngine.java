@@ -77,6 +77,7 @@ public class GameEngine {
             else if (dir == Direction.RIGHT) nx++;
             return get(nx, ny);
         }
+        
     }
     
     public GameEngine(Bot logic1, Bot logic2) {
