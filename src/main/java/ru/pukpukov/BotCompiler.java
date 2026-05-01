@@ -30,6 +30,7 @@ public class BotCompiler {
         String sourceCode = """
             package com.territorywar;
             import com.territorywar.api.*;
+            import java.lang.*;
             import java.util.*;
             
             import static com.territorywar.api.Util.*;

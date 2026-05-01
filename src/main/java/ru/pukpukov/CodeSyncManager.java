@@ -13,6 +13,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class CodeSyncManager {
+    
     private static final Logger log = Logger.getLogger(CodeSyncManager.class.getName());
     
     private final TextArea area1;
