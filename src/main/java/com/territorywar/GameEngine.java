@@ -63,24 +63,23 @@ public class GameEngine {
             this.logic = logic;
         }
         
-        @Override public int getMyId() { return id; }
-        @Override public int getMyX() { return x; }
-        @Override public int getMyY() { return y; }
-        @Override public Map<String, Object> getMemory() { return memory; }
+        @Override public int id() { return id; }
+        @Override public int x() { return x; }
+        @Override public int y() { return y; }
         
         @Override
-        public int getGrid(int gx, int gy) {
+        public int get(int gx, int gy) {
             return isInBounds(gx, gy) ? grid[gx][gy] : -1;
         }
         
         @Override
-        public int getNext(Direction dir) {
+        public int next(Direction dir) {
             int nx = x, ny = y;
             if (dir == Direction.UP) ny--;
             else if (dir == Direction.DOWN) ny++;
             else if (dir == Direction.LEFT) nx--;
             else if (dir == Direction.RIGHT) nx++;
-            return getGrid(nx, ny);
+            return get(nx, ny);
         }
     }
     
@@ -124,7 +123,7 @@ public class GameEngine {
     
     private Direction getMoveSafe(BotState botState) {
         try {
-            return botState.logic.move(botState);
+            return botState.logic.move(botState, botState.memory);
         } catch (Exception e) {
             log.log(Level.WARNING, "Ошибка выполнения кода у Бота " + botState.id, e);
             return null;

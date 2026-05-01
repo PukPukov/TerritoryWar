@@ -32,9 +32,11 @@ public class BotCompiler {
             import com.territorywar.api.*;
             import java.util.*;
             
+            import static com.territorywar.api.Util.*;
+            
             public class %s implements Bot {
                 @Override
-                public Direction move(BotAPI api) {
+                public Direction move(BotAPI api, Map<String, Object> mem) {
             %s
                 }
             }

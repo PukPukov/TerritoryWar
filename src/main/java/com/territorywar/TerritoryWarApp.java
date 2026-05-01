@@ -153,32 +153,37 @@ public class TerritoryWarApp extends Application {
     private TextArea createCodeArea(String defaultCode) {
         TextArea area = new TextArea(defaultCode);
         area.setFont(Font.font("Monospaced", 14));
-        // ИСПРАВЛЕНИЕ: Разрешаем текстовому полю занимать все доступное место по высоте
         VBox.setVgrow(area, Priority.ALWAYS);
         return area;
     }
     
     private TitledPane createRulesPane() {
         TextArea rulesText = new TextArea("""
-            ЦЕЛЬ: Захватить как можно больше поля. Замкнутые области закрашиваются автоматически.
-            ВАШ МЕТОД: public Direction move(BotAPI api)
+            ПРАВИЛА ИГРЫ
+            Цель — захватить как можно больше клеток.
+            Клетка захватывается при входе на неё, каждый ход бот может передвинуться в одном из направлений. Замкнутые области закрашиваются автоматически.
             
-            Доступные методы объекта api:
-            • api.getMyId() - возвращает ваш ID (1 или 2).
-            • api.getMyX() / api.getMyY() - ваши текущие координаты.
-            • api.getGrid(x, y) - значение клетки: 0 (пусто), 1 (Красный), 2 (Синий), -1 (край карты).
-            • api.getNext(Direction dir) - возвращает значение клетки, находящейся по направлению dir.
-            • api.getMemory() - Map<String, Object> для сохранения переменных между ходами.
+            API
+            Ваш ход должен вернуть одно из направлений: Direction.UP, DOWN, LEFT, RIGHT. Если бот врезается в чужую территорию или выдает Exception, он пропускает ход!
             
-            Ваш ход должен вернуть одно из направлений: Direction.UP, DOWN, LEFT, RIGHT.
-            Если бот врезается в чужую территорию или выдает Exception, он пропускает ход!
+            Код в поле ввода является реализацией метода public Direction move(BotAPI api, Map<String, Object> mem).
+            
+            Доступные методы BotAPI:
+            • api.id() - возвращает ваш ID (1 или 2).
+            • api.x() / api.y() - ваши текущие координаты.
+            • api.get(x, y) - значение клетки: 0 (пусто), 1 (Красный), 2 (Синий), -1 (край карты).
+            • api.next(Direction dir) - возвращает значение клетки, находящейся по направлению dir.
+            
+            Параметр mem предназначен для сохранения переменных между ходами.
+            
+            В поле видимости добавлены импорты классов API ботов, импорт java.util, а также статический импорт класса Util.
             """);
         rulesText.setEditable(false);
         rulesText.setWrapText(true);
         rulesText.setPrefRowCount(9);
         rulesText.setStyle("-fx-control-inner-background: #fdfdfd; -fx-font-family: 'Segoe UI', Arial;");
         
-        TitledPane pane = new TitledPane("📖 Правила и API (нажмите, чтобы свернуть/развернуть)", rulesText);
+        TitledPane pane = new TitledPane("Правила и API (нажмите, чтобы свернуть/развернуть)", rulesText);
         pane.setExpanded(true);
         return pane;
     }
@@ -379,23 +384,21 @@ public class TerritoryWarApp extends Application {
     
     private String getBot1DefaultCode() {
         return """
-            Direction[] dirs = {Direction.UP, Direction.RIGHT, Direction.DOWN, Direction.LEFT};
-            Map<String, Object> mem = api.getMemory();
-            
+            var dirs = Direction.values();
             if (!mem.containsKey("dirIndex")) mem.put("dirIndex", 1);
             int dirIndex = (int) mem.get("dirIndex");
             
             Direction currDir = dirs[dirIndex];
             
-            if (api.getNext(currDir) != 0) {
+            if (api.next(currDir) != 0) {
                 dirIndex = (dirIndex + 1) % 4;
                 mem.put("dirIndex", dirIndex);
                 currDir = dirs[dirIndex];
             }
             
-            if (api.getNext(currDir) != 0) {
+            if (api.next(currDir) != 0) {
                 for (Direction d : dirs) {
-                    if (api.getNext(d) == api.getMyId()) return d; 
+                    if (api.next(d) == api.id()) return d;
                 }
             }
             return currDir;
@@ -404,15 +407,15 @@ public class TerritoryWarApp extends Application {
     
     private String getBot2DefaultCode() {
         return """
-            List<Direction> dirs = new ArrayList<>(Arrays.asList(Direction.values()));
+            var dirs = new ArrayList<>(Arrays.asList(Direction.values()));
             Collections.shuffle(dirs);
             
             for (Direction dir : dirs) {
-                if (api.getNext(dir) == 0) return dir;
+                if (api.next(dir) == 0) return dir;
             }
             
             for (Direction dir : dirs) {
-                if (api.getNext(dir) == api.getMyId()) return dir;
+                if (api.next(dir) == api.id()) return dir;
             }
             return Direction.UP;
             """;
@@ -421,4 +424,5 @@ public class TerritoryWarApp extends Application {
     public static void main(String[] args) {
         launch(args);
     }
+    
 }
