@@ -7,6 +7,8 @@ import javafx.util.Duration;
 
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -18,31 +20,34 @@ public class CodeSyncManager {
     private final Path path1 = Paths.get("bot1.java");
     private final Path path2 = Paths.get("bot2.java");
     
+    // КЭШ: Храним последний записанный НАМИ текст, чтобы отличать эхо от реальных внешних изменений
+    private final Map<Path, String> lastWrittenMap = new ConcurrentHashMap<>();
+    
     public CodeSyncManager(TextArea area1, TextArea area2) {
         this.area1 = area1;
         this.area2 = area2;
     }
     
     public void init(String defaultBot1, String defaultBot2) {
-        // Инициализируем файлы и поля ввода
         setupFileAndUI(path1, area1, defaultBot1);
         setupFileAndUI(path2, area2, defaultBot2);
         
-        // Вешаем слушатели на ввод пользователя с задержкой 500мс (Debounce)
         setupUiListener(area1, path1);
         setupUiListener(area2, path2);
         
-        // Запускаем фоновый поток слежения за диском
         startFileWatcher();
     }
     
     private void setupFileAndUI(Path path, TextArea area, String defaultCode) {
         if (Files.exists(path)) {
             try {
-                area.setText(Files.readString(path));
+                String content = Files.readString(path);
+                lastWrittenMap.put(path, normalize(content));
+                area.setText(content);
             } catch (IOException e) {
                 log.warning("Не удалось прочитать " + path.getFileName());
                 area.setText(defaultCode);
+                writeToFile(path, defaultCode);
             }
         } else {
             area.setText(defaultCode);
@@ -55,22 +60,26 @@ public class CodeSyncManager {
         debounce.setOnFinished(e -> writeToFile(path, area.getText()));
         
         area.textProperty().addListener((obs, oldVal, newVal) -> {
-            // Перезапускаем таймер при каждом нажатии, 
-            // сохранение произойдет только если ввода не было 500мс
+            // Перезапускаем таймер при каждом нажатии
             debounce.playFromStart();
         });
     }
     
     private void writeToFile(Path path, String content) {
         try {
-            // Если текст не изменился, ничего не пишем (предотвращает циклы обновления)
+            String normContent = normalize(content);
+            
             if (Files.exists(path)) {
                 String currentFileContent = Files.readString(path);
-                if (normalize(currentFileContent).equals(normalize(content))) {
-                    return;
+                if (normalize(currentFileContent).equals(normContent)) {
+                    return; // Текст не изменился, не пишем
                 }
             }
+            
+            // ИСПРАВЛЕНИЕ: Запоминаем, что именно мы сейчас запишем в файл
+            lastWrittenMap.put(path, normContent);
             Files.writeString(path, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            
         } catch (IOException e) {
             log.warning("Не удалось сохранить " + path.getFileName() + ": " + e.getMessage());
         }
@@ -98,7 +107,7 @@ public class CodeSyncManager {
                 log.log(Level.WARNING, "Ошибка слежения за файлами (File watcher)", e);
             }
         });
-        watcherThread.setDaemon(true); // Закроется вместе с приложением
+        watcherThread.setDaemon(true);
         watcherThread.start();
     }
     
@@ -108,10 +117,20 @@ public class CodeSyncManager {
         
         try {
             String content = Files.readString(path);
+            String normContent = normalize(content);
+            
+            // ИСПРАВЛЕНИЕ: Если файл содержит то же самое, что мы сами туда только что записали - игнорируем событие (эхо-компенсация)
+            if (normContent.equals(lastWrittenMap.get(path))) {
+                return;
+            }
+            
             Platform.runLater(() -> {
-                // Изменяем UI только если текст реально изменился извне
-                if (!normalize(area.getText()).equals(normalize(content))) {
+                if (!normalize(area.getText()).equals(normContent)) {
                     int caret = area.getCaretPosition();
+                    
+                    // Обновляем кэш, так как мы приняли изменения из стороннего редактора
+                    lastWrittenMap.put(path, normContent);
+                    
                     area.setText(content);
                     // Попытка восстановить позицию курсора
                     area.positionCaret(Math.min(caret, content.length()));
@@ -124,6 +143,7 @@ public class CodeSyncManager {
     
     private String normalize(String text) {
         if (text == null) return "";
+        // Приводим все типы переносов каретки к одному стандарту, чтобы сравнение не сбивалось
         return text.replace("\r\n", "\n").replace("\r", "\n");
     }
 }
