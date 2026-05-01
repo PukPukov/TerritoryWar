@@ -122,7 +122,7 @@ public class GameEngine {
     private Direction getMoveSafe(BotState botState) {
         try {
             return botState.logic.move(botState, botState.memory);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             log.log(Level.WARNING, "Ошибка выполнения кода у Бота " + botState.id, e);
             return null;
         }
