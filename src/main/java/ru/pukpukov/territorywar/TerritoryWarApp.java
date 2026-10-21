@@ -31,7 +31,12 @@ public final class TerritoryWarApp extends Application {
     private final Button watch = new Button("Смотреть запись");
     private final CodeSyncManager sync = new CodeSyncManager(TerritoryWarApp::showError);
     private @Nullable GameEngine game;
-    private @Nullable GameReplay replay;
+    private final GameLibrary library = new InMemoryGameLibrary();
+    private final ComboBox<GameLibrary.Entry> recordings = new ComboBox<>();
+    private @Nullable BoardState board;
+    private @Nullable PointInput input;
+    private @Nullable Task<BoardState> step;
+    private volatile boolean running;
     private boolean playingReplay;
     private double cellSize;
 
@@ -44,29 +49,49 @@ public final class TerritoryWarApp extends Application {
         }
 
         @Override public void handle(long now) {
+            if (step != null) {
+                lastUpdate = now;
+                accumulated = 0; // A blocking bot must not accumulate catch-up time.
+                return;
+            }
             GameEngine current = game;
             if (current == null || current.isGameOver()) return;
             if (lastUpdate == 0) lastUpdate = now;
             accumulated += now - lastUpdate;
             lastUpdate = now;
             long nsPerTick = (long) (1_000_000_000 / (2 * Math.pow(1500, speed.getValue() / 100)));
-            int ticks = 0;
-            while (accumulated >= nsPerTick && ticks < 100 && !current.isGameOver()) {
-                current.logicTick();
-                accumulated -= nsPerTick;
-                ticks++;
-            }
-            if (ticks == 100) accumulated = 0;
-            if (ticks > 0) refresh();
-            if (current.isGameOver()) {
-                stop();
-                status.setText((playingReplay ? "Запись: " : "") + (current.winner() == 0 ? "Ничья!" : "Победил Бот " + current.winner()));
-            }
+            int ticks = (int) Math.min(100, accumulated / nsPerTick);
+            if (ticks == 0) return;
+            accumulated = ticks == 100 ? 0 : accumulated - ticks * nsPerTick;
+            Task<BoardState> task = new Task<>() {
+                @Override protected BoardState call() {
+                    for (int i = 0; i < ticks && running && !isCancelled() && !current.isGameOver(); i++) current.logicTick();
+                    return BoardState.capture(current.bot(1));
+                }
+            };
+            step = task;
+            task.setOnSucceeded(event -> {
+                if (step != task) return; // Reset/replay may have replaced this session.
+                step = null;
+                display(task.getValue());
+                if (current.isGameOver()) {
+                    pause();
+                    if (!playingReplay) addRecording("Игра " + (library.entries().size() + 1), current.recording());
+                    status.setText((playingReplay ? "Запись: " : "") + (current.winner() == 0 ? "Ничья!" : "Победил Бот " + current.winner()));
+                }
+            });
+            task.setOnFailed(event -> {
+                if (step != task) return;
+                discardGame();
+                status.setText("Ошибка выполнения игры");
+                showError(task.getException());
+            });
+            Thread.ofVirtual().name("game-step").start(task);
         }
     };
 
     @Override public void start(Stage stage) throws IOException {
-        stage.setTitle("Territory War");
+        stage.setTitle("Territory War 1.5");
         SplitPane split = new SplitPane(gamePanel(stage), editors());
         split.setDividerPositions(0.55);
         stage.setScene(new Scene(split, 1100, 700));
@@ -80,7 +105,7 @@ public final class TerritoryWarApp extends Application {
     }
 
     @Override public void stop() throws IOException {
-        loop.stop();
+        discardGame();
         sync.close();
     }
 
@@ -88,6 +113,7 @@ public final class TerritoryWarApp extends Application {
         HBox scoreboard = new HBox(25, scores[0], status, scores[1]);
         scoreboard.setAlignment(Pos.CENTER);
         for (int i = 0; i < scores.length; i++) scores[i].setTextFill(BOT_COLORS[i]);
+        canvas.setId("game-field");
         StackPane field = new StackPane(canvas);
         field.setStyle("-fx-border-color: #ccc; -fx-background-color: white;");
         field.widthProperty().addListener((obs, old, value) -> resize(field));
@@ -98,24 +124,25 @@ public final class TerritoryWarApp extends Application {
         count.setId("simulation-count");
         winner.getItems().setAll("Бот 1", "Бот 2");
         winner.getSelectionModel().selectFirst();
-        watch.setDisable(true);
+        recordings.setId("recordings");
+        recordings.setPrefWidth(260);
+        recordings.setPromptText("Записи текущего сеанса");
+        watch.disableProperty().bind(recordings.valueProperty().isNull());
         watch.setOnAction(e -> {
-            pause();
+            discardGame();
             playingReplay = true;
-            game = fnnul(replay).newGame();
-            refresh();
             startGame();
         });
         VBox panel = new VBox(10, scoreboard, field,
             row(button("▶ Старт", this::startGame), button("Пауза", this::pause), button("Сброс", () -> {
-                pause();
-                game = null;
+                discardGame();
                 playingReplay = false;
                 status.setText("Ожидание...");
                 refresh();
             }), new Label("Скорость:"), speed),
             row(new Label("Число игр:"), count, button("Симулировать", () -> simulate(stage, 0))),
-            row(new Label("Победа:"), winner, button("Искать победу", () -> simulate(stage, winner.getSelectionModel().getSelectedIndex() + 1)), watch));
+            row(new Label("Победа:"), winner, button("Искать победу", () -> simulate(stage, winner.getSelectionModel().getSelectedIndex() + 1))),
+            row(new Label("Записи:"), recordings, watch));
         panel.setPadding(new Insets(10));
         panel.setStyle("-fx-background-color: #FAFAFA;");
         return panel;
@@ -124,11 +151,13 @@ public final class TerritoryWarApp extends Application {
     private Pane editors() {
         VBox[] boxes = new VBox[code.length];
         for (int i = 0; i < code.length; i++) {
+            code[i].setId("bot-code-" + (i + 1));
             code[i].setFont(Font.font("Monospaced", 14));
             VBox.setVgrow(code[i], Priority.ALWAYS);
             Label label = new Label("Код Бота " + (i + 1));
             label.setTextFill(BOT_COLORS[i]);
-            boxes[i] = new VBox(5, label, code[i]);
+            int index = i;
+            boxes[i] = new VBox(5, row(label, button("Загрузить…", () -> loadBot(index))), code[i]);
         }
         SplitPane split = new SplitPane(boxes);
         split.setOrientation(Orientation.VERTICAL);
@@ -163,25 +192,73 @@ public final class TerritoryWarApp extends Application {
         return new Simulations(compiled.get(0), compiled.get(1));
     }
 
+    private void loadBot(int index) {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.initOwner(canvas.getScene().getWindow());
+        dialog.setTitle("Загрузить код Бота " + (index + 1));
+        dialog.setHeaderText("Выберите пример или введите путь к Java-файлу");
+        ComboBox<String> file = new ComboBox<>();
+        file.setId("bot-file-path");
+        file.setEditable(true);
+        file.setMaxWidth(Double.MAX_VALUE);
+        Path directory = Path.of("bots");
+        if (Files.isDirectory(directory)) {
+            try (var files = Files.list(directory)) {
+                file.getItems().setAll(files.filter(Files::isRegularFile).filter(path -> path.toString().endsWith(".java"))
+                    .sorted().map(Path::toString).toList());
+            } catch (IOException e) { showError(e); return; }
+        }
+        file.setValue(file.getItems().isEmpty() ? "bots/manual.java" : file.getItems().getFirst());
+        dialog.getDialogPane().setContent(file);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        // Use standard JavaFX controls, not GTK FileChooser: the latter aborts on hosts without GSettings schemas.
+        dialog.setOnHidden(event -> {
+            if (dialog.getResult() != ButtonType.OK) return;
+            try { code[index].setText(Files.readString(Path.of(file.getEditor().getText().strip()))); }
+            catch (IOException | InvalidPathException e) { showError(e); }
+        });
+        dialog.setResultConverter(button -> button);
+        dialog.show();
+    }
+
     private void startGame() {
-        if (game == null || game.isGameOver()) {
+        if (step == null && (game == null || game.isGameOver())) {
             if (playingReplay) {
-                game = fnnul(replay).newGame();
+                game = fnnul(recordings.getValue()).replay().newGame();
             } else {
                 Simulations bots = compileBots();
                 if (bots == null) return;
-                try { game = bots.newGame(false); }
-                catch (RuntimeException e) { showError(e); return; }
+                if (input != null) input.close();
+                input = new PointInput(canvas, this::display);
+                try { game = bots.newGame(true, input); }
+                catch (RuntimeException e) { discardGame(); showError(e); return; }
             }
-            refresh();
+            display(BoardState.capture(game.bot(1)));
         }
+        running = true;
         status.setText(playingReplay ? "Просмотр записи..." : "Игра идёт...");
         loop.start();
     }
 
     private void pause() {
+        running = false;
         loop.stop();
-        if (game != null && !game.isGameOver()) status.setText(playingReplay ? "Запись: пауза" : "Пауза");
+        if (game != null && (step != null || !game.isGameOver())) status.setText(playingReplay ? "Запись: пауза" : "Пауза");
+    }
+
+    private void discardGame() {
+        pause();
+        if (step != null) step.cancel(true);
+        step = null;
+        if (input != null) input.close();
+        input = null;
+        game = null;
+        board = null;
+    }
+
+    private void display(BoardState snapshot) {
+        board = snapshot;
+        refresh();
     }
 
     private void resize(Pane field) {
@@ -199,7 +276,7 @@ public final class TerritoryWarApp extends Application {
         gc.setLineWidth(1);
         for (int x = 0; x <= GameEngine.COLS; x++) gc.strokeLine(x * cellSize, 0, x * cellSize, canvas.getHeight());
         for (int y = 0; y <= GameEngine.ROWS; y++) gc.strokeLine(0, y * cellSize, canvas.getWidth(), y * cellSize);
-        GameEngine current = game;
+        BoardState current = board;
         if (current != null) {
             int[][] grid = current.grid();
             for (int x = 0; x < GameEngine.COLS; x++) for (int y = 0; y < GameEngine.ROWS; y++) {
@@ -210,9 +287,9 @@ public final class TerritoryWarApp extends Application {
             }
         }
         for (int i = 0; i < scores.length; i++) {
-            scores[i].setText("Бот " + (i + 1) + ": " + (current == null ? 1 : current.score(i + 1)));
+            scores[i].setText("Бот " + (i + 1) + ": " + (current == null ? 1 : current.players().get(i).score()));
             if (current == null) continue;
-            var bot = current.bot(i + 1);
+            var bot = current.players().get(i);
             gc.setFill(BOT_COLORS[i]);
             gc.fillRect(bot.x() * cellSize, bot.y() * cellSize, cellSize, cellSize);
         }
@@ -233,9 +310,10 @@ public final class TerritoryWarApp extends Application {
         Simulations bots = compileBots();
         if (bots == null) return;
         final int limit = games;
+        AtomicBoolean cancelled = new AtomicBoolean();
         Task<Simulations.Result> task = new Task<>() {
             @Override protected Simulations.Result call() {
-                return bots.run(limit, target, this::isCancelled, done -> {
+                return bots.run(limit, target, cancelled::get, done -> {
                     updateMessage("Завершено игр: " + done);
                     updateProgress(target == 0 ? done : -1, limit);
                 });
@@ -249,29 +327,50 @@ public final class TerritoryWarApp extends Application {
         message.textProperty().bind(task.messageProperty());
         ProgressBar progress = new ProgressBar(target == 0 ? 0 : -1);
         progress.progressProperty().bind(task.progressProperty());
-        VBox panel = new VBox(15, message, progress, button("Отмена", () -> task.cancel(true)));
+        Button cancel = new Button("Отмена");
+        cancel.setOnAction(_ -> {
+            cancelled.set(true);
+            cancel.setDisable(true);
+            cancel.setText("Останавливаем...");
+        });
+        VBox panel = new VBox(15, message, progress, cancel);
         panel.setAlignment(Pos.CENTER);
         panel.setPadding(new Insets(20));
         dialog.setScene(new Scene(panel, 330, 150));
-        dialog.setOnCloseRequest(e -> task.cancel(true));
-        task.setOnCancelled(e -> dialog.close());
+        dialog.setOnCloseRequest(e -> {
+            e.consume();
+            cancel.fire();
+        });
         task.setOnFailed(e -> { dialog.close(); showError(task.getException()); });
         task.setOnSucceeded(e -> {
             dialog.close();
             Simulations.Result result = task.getValue();
-            if (result.replay() != null) {
-                replay = result.replay();
-                watch.setDisable(false);
+            List<GameLibrary.Entry> saved = new ArrayList<>();
+            for (GameReplay recording : new LinkedHashSet<>(result.best().values())) {
+                String evaluators = result.best().entrySet().stream().filter(entry -> entry.getValue() == recording)
+                    .map(entry -> entry.getKey().toString()).collect(Collectors.joining(", "));
+                saved.add(addRecording("Поиск Бота " + target + " — " + evaluators, recording));
             }
+            if (!saved.isEmpty()) recordings.getSelectionModel().select(saved.getFirst());
             Alert alert = new Alert(Alert.AlertType.INFORMATION);
             alert.initOwner(owner);
             alert.setTitle("Результаты " + result.count() + " игр");
-            alert.setHeaderText(target == 0 ? "Симуляция завершена" : "Победа найдена — запись готова к просмотру");
-            alert.setContentText("Бот 1: " + result.wins1() + " побед\nБот 2: " + result.wins2() + " побед\nНичьих: " + result.draws());
+            alert.setHeaderText(result.cancelled() ? "Поиск/симуляция остановлены" : target == 0 ? "Симуляция завершена" : "Победа найдена — запись готова к просмотру");
+            String best = saved.stream().map(GameLibrary.Entry::toString).collect(Collectors.joining("\n"));
+            if (target != 0 && saved.isEmpty()) best = "Нет завершённых игр — запись не создана.";
+            alert.setContentText("Бот 1: " + result.wins1() + " побед\nБот 2: " + result.wins2() + " побед\nНичьих: " + result.draws() + "\n\n" + best);
             alert.show();
         });
         dialog.show();
         Thread.ofPlatform().daemon().name("simulations").start(task);
+    }
+
+    private GameLibrary.Entry addRecording(String title, GameReplay recording) {
+        GameLibrary.Entry entry = new GameLibrary.Entry(title, recording);
+        library.add(entry);
+        recordings.getItems().setAll(library.entries());
+        recordings.getSelectionModel().select(entry);
+        return entry;
     }
 
     private static void showError(Throwable error) {
@@ -293,11 +392,14 @@ public final class TerritoryWarApp extends Application {
             Клетка захватывается при входе на неё, каждый ход бот может передвинуться в одном из направлений. Замкнутые области закрашиваются автоматически. Нельзя наступать на захваченные врагом территории.
             
             API
-            Ваш ход должен вернуть одно из направлений: Direction.UP, DOWN, LEFT, RIGHT. Если бот врезается в чужую территорию или выдает Exception, он пропускает ход!
+            Ваш ход должен вернуть одно из направлений: Direction.UP, DOWN, LEFT, RIGHT или NONE (стоять). Если бот врезается в чужую территорию или выдает Exception, он пропускает ход!
             
             Код в поле ввода является реализацией метода public Direction move(BotAPI api, Map<String, Object> mem).
             
             Доступные методы BotAPI:
+            • api.askPoint() - блокирующий выбор точки кликом/попапом; null при отмене. Только обычная игра.
+            • api.towards(x, y) - сначала X, затем Y; NONE при достижении. Стены не обходит.
+            • api.towards(start, target) - ступеньки по прямой с исходным соотношением X:Y (точки BotInput.Point).
             • api.tickCount() - возвращает номер тика (0, 1, 2, 3, 4...)
             • api.enemy() -> BotAPI - доступ к данным врага
             • api.id() - возвращает ваш ID (1 или 2)
@@ -324,16 +426,16 @@ public final class TerritoryWarApp extends Application {
     
     private String getBot1DefaultCode() {
         return """
-            var dirs = Direction.values();
+            var dirs = Direction.MOVING;
             if (!mem.containsKey("dirIndex")) mem.put("dirIndex", 1);
             int dirIndex = (int) mem.get("dirIndex");
             
-            Direction currDir = dirs[dirIndex];
+            Direction currDir = dirs.get(dirIndex);
             
             if (api.next(currDir) != 0) {
-                dirIndex = (dirIndex + 1) % 4;
+                dirIndex = (dirIndex + 1) % dirs.size();
                 mem.put("dirIndex", dirIndex);
-                currDir = dirs[dirIndex];
+                currDir = dirs.get(dirIndex);
             }
             
             if (api.next(currDir) != 0) {
@@ -347,8 +449,8 @@ public final class TerritoryWarApp extends Application {
     
     private String getBot2DefaultCode() {
         return """
-            var dirs = new ArrayList<>(Arrays.asList(Direction.values()));
-            Collections.shuffle(dirs);
+            var dirs = new ArrayList<>(Direction.MOVING);
+            Collections.shuffle(list, ThreadLocalRandom.current());
             
             for (Direction dir : dirs) {
                 if (api.canMoveTo(dir)) return dir;

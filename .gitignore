@@ -10,3 +10,5 @@
 
 bot1.java
 bot2.java
+!bots/
+!bots/**

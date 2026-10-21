@@ -121,7 +121,28 @@ class GameEngineTest {
             game.logicTick();
             assertEquals(x, game.bot(1).x());
             assertEquals(y, game.bot(1).y());
-            assertEquals(2, game.score(1));
+            assertEquals(direction == Direction.NONE ? 1 : 2, game.score(1));
+        }
+    }
+
+    @Test void proportionalDirectionsFollowTheWholeSegmentInEveryQuadrant() {
+        for (int dx : new int[]{-9, -3, -1, 0, 1, 3, 9}) for (int dy : new int[]{-9, -3, -1, 0, 1, 3, 9}) {
+            BotInput.Point start = new BotInput.Point(30, 30), target = new BotInput.Point(30 + dx, 30 + dy);
+            GameEngine game = GameEngine.builder().bot1((api, _) -> api.towards(start, target)).bot2((_, _) -> Direction.NONE).build();
+            int horizontal = 0, vertical = 0;
+            for (int step = 0; step < Math.abs(dx) + Math.abs(dy); step++) {
+                int x = game.bot(1).x(), y = game.bot(1).y();
+                game.logicTick();
+                horizontal += Math.abs(game.bot(1).x() - x);
+                vertical += Math.abs(game.bot(1).y() - y);
+                // Midpoint scheduling keeps the route close to its ideal straight segment.
+                assertTrue(Math.abs(horizontal * Math.abs(dy) - vertical * Math.abs(dx)) <= (Math.abs(dx) + Math.abs(dy)) / 2.0);
+            }
+            assertEquals(Math.abs(dx), horizontal);
+            assertEquals(Math.abs(dy), vertical);
+            assertEquals(target.x(), game.bot(1).x());
+            assertEquals(target.y(), game.bot(1).y());
+            assertEquals(Direction.NONE, game.bot(1).towards(start, target));
         }
     }
 

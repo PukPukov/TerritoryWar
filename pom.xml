@@ -9,7 +9,7 @@
         <version>1.4.10</version>
     </parent>
     <artifactId>territory-war</artifactId>
-    <version>1.4</version>
+    <version>1.5</version>
     <packaging>${jarLifecycleType}</packaging>
     <properties>
         <main>ru.pukpukov.territorywar.Launcher</main>

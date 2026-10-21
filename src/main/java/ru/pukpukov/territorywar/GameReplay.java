@@ -8,11 +8,19 @@ public final class GameReplay {
     private static final Direction[] DIRECTIONS = Direction.values();
     private final boolean bot1First;
     private final byte[] moves;
+    private final int score1, score2;
 
-    GameReplay(boolean bot1First, byte[] moves) {
+    GameReplay(boolean bot1First, byte[] moves, int score1, int score2) {
         assert moves.length > 0 && moves.length % 2 == 0 : "Incomplete recording";
+        this.score1 = score1;
+        this.score2 = score2;
         this.bot1First = bot1First;
         this.moves = moves.clone();
+    }
+
+    public int score(int player) {
+        assert player == GameEngine.PLAYER_1 || player == GameEngine.PLAYER_2;
+        return player == GameEngine.PLAYER_1 ? score1 : score2;
     }
 
     public GameEngine newGame() {

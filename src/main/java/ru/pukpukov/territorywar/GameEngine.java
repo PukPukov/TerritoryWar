@@ -17,12 +17,13 @@ public final class GameEngine {
     public static final int COLS = FIELD_SIZE, ROWS = FIELD_SIZE;
     public static final int EMPTY = 0, PLAYER_1 = 1, PLAYER_2 = 2;
     public static final int MAX_IDLE_TICKS = 128;
-    private static final Direction[] DIRECTIONS = Direction.values();
+    private static final Direction[] DIRECTIONS = Direction.MOVING.toArray(Direction[]::new);
     private static final Logger LOG = Logger.getLogger(GameEngine.class.getName());
 
     private final @Getter int[][] grid = new int[COLS][ROWS];
     private final BotState[] bots;
     private final boolean initialOrder;
+    private final @Nullable BotInput input;
     private final @Nullable ByteArrayOutputStream moves;
     private int first, idleTicks;
     private @Getter boolean isGameOver;
@@ -40,18 +41,24 @@ public final class GameEngine {
             this.logic = logic;
         }
 
+        @Override public BotInput.@Nullable Point askPoint() {
+            if (input == null) throw new BotInput.Unavailable();
+            return input.askPoint(this);
+        }
+
         @Override public BotAPI enemy() { return bots[2 - id]; }
         @Override public int get(int x, int y) { return inBounds(x, y) ? grid[x][y] : -1; }
     }
 
     // Fixed initial order is also used by playback and parity tests.
     @Builder
-    public GameEngine(@NonNull Bot bot1, @NonNull Bot bot2, @Nullable Boolean bot1First, @Nullable Boolean record) {
+    public GameEngine(@NonNull Bot bot1, @NonNull Bot bot2, @Nullable Boolean bot1First, @Nullable Boolean record, @Nullable BotInput input) {
         if (bot1First == null) bot1First = ThreadLocalRandom.current().nextBoolean();
         if (record == null) record = false;
         int start = FIELD_SIZE * 15 / 100;
         bots = new BotState[]{new BotState(PLAYER_1, start, bot1), new BotState(PLAYER_2, FIELD_SIZE - start - 1, bot2)};
         for (BotState bot : bots) grid[bot.x][bot.y] = bot.id;
+        this.input = input;
         initialOrder = bot1First;
         first = bot1First ? 0 : 1;
         moves = record ? new ByteArrayOutputStream() : null;
@@ -72,6 +79,8 @@ public final class GameEngine {
         Direction direction;
         try {
             direction = bot.logic.move(bot, bot.memory);
+        } catch (BotInput.Failure | CancellationException e) {
+            throw e;
         } catch (RuntimeException e) {
             LOG.log(Level.WARNING, "Ошибка выполнения кода у Бота " + bot.id, e);
             direction = null;
@@ -126,7 +135,7 @@ public final class GameEngine {
     public int winner() { return bots[0].score == bots[1].score ? EMPTY : bots[0].score > bots[1].score ? PLAYER_1 : PLAYER_2; }
 
     public GameReplay recording() {
-        assert isGameOver && moves != null : "Only completed search games have a recording";
-        return new GameReplay(initialOrder, fnnul(moves).toByteArray());
+        assert isGameOver && moves != null : "Only completed recorded games have a recording";
+        return new GameReplay(initialOrder, fnnul(moves).toByteArray(), score(PLAYER_1), score(PLAYER_2));
     }
 }
