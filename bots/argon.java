@@ -1,5 +1,5 @@
 class Brain {
-    static final Direction[] DIRS = Direction.values(); // 0:RIGHT, 1:DOWN, 2:LEFT, 3:UP
+    static final Direction[] DIRS = Direction.MOVING.toArray(new Direction[0]); // 0:RIGHT, 1:DOWN, 2:LEFT, 3:UP
     static final int[] DX = {1, 0, -1, 0};
     static final int[] DY = {0, 1, 0, -1};
     static final int[] DIAG_X = {1, 1, -1, -1};

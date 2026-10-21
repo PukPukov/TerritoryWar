@@ -11,6 +11,8 @@ public enum Direction {
     public static final List<Direction> MOVING = Arrays.stream(values()).filter(direction -> direction != NONE).toList();
     public final int dx, dy;
 
+    public Direction opposite() { return towards(-dx, -dy); }
+
     /** No pathfinding: horizontal first, then vertical, or NONE at the target. */
     public static Direction towards(int dx, int dy) {
         if (dx != 0) return dx > 0 ? RIGHT : LEFT;

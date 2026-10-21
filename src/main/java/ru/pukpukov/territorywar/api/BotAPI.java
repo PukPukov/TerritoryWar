@@ -10,6 +10,8 @@ public interface BotAPI {
     int x();
     int y();
     int get(int x, int y);
+    /** Red's frame (colors, coordinates, input); call at the start of move to also normalize its returned direction. */
+    BotAPI normalized();
     /** Blocks the calling bot, never the UI thread; null means the user cancelled. */
     BotInput.@Nullable Point askPoint();
     

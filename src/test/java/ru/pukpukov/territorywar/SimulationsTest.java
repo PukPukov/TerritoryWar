@@ -25,6 +25,8 @@ class SimulationsTest {
         static Set<Long> threads = ConcurrentHashMap.newKeySet();
         final boolean wins = instances.incrementAndGet() == 1;
 
+        protected CountDownLatch gate() { return wins ? peers : release; }
+
         static void reset() {
             instances.set(0);
             active.set(0);
@@ -39,7 +41,7 @@ class SimulationsTest {
                 if (api.tickCount() == 0) {
                     threads.add(Thread.currentThread().threadId());
                     peers.countDown();
-                    assertTrue((wins ? peers : release).await(5, TimeUnit.SECONDS), "Search needs concurrent workers");
+                    assertTrue(gate().await(5, TimeUnit.SECONDS), "Search needs concurrent workers");
                 }
                 return wins ? Direction.RIGHT : Direction.NONE;
             } catch (InterruptedException e) {
@@ -47,6 +49,11 @@ class SimulationsTest {
                 throw new AssertionError(e);
             } finally { active.decrementAndGet(); }
         }
+    }
+
+    /** No game can finish until the cancelling test explicitly releases the workers. */
+    public static class ParallelWaiting extends ParallelWinner {
+        @Override protected CountDownLatch gate() { return release; }
     }
 
     @Test void searchRunsConcurrentlyAndJoinsUnfinishedPeersAfterWin() {
@@ -171,7 +178,7 @@ class SimulationsTest {
         ParallelWinner.reset();
         AtomicBoolean cancelled = new AtomicBoolean();
         try (var executor = Executors.newSingleThreadExecutor()) {
-            Future<Simulations.Result> future = executor.submit(() -> new Simulations(ParallelWinner.class, Idle.class)
+            Future<Simulations.Result> future = executor.submit(() -> new Simulations(ParallelWaiting.class, Idle.class)
                 .run(0, 1, cancelled::get, done -> fail("Cancelled game must not count")));
             try {
                 assertTrue(ParallelWinner.peers.await(5, TimeUnit.SECONDS));

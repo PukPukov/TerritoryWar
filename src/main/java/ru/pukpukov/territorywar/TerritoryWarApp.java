@@ -91,7 +91,7 @@ public final class TerritoryWarApp extends Application {
     };
 
     @Override public void start(Stage stage) throws IOException {
-        stage.setTitle("Territory War 1.5");
+        stage.setTitle("Territory War");
         SplitPane split = new SplitPane(gamePanel(stage), editors());
         split.setDividerPositions(0.55);
         stage.setScene(new Scene(split, 1100, 700));
@@ -397,6 +397,7 @@ public final class TerritoryWarApp extends Application {
             Код в поле ввода является реализацией метода public Direction move(BotAPI api, Map<String, Object> mem).
             
             Доступные методы BotAPI:
+            • api = api.normalized() - в начале каждого хода: всегда красный, включая координаты, поле и соперника. Для синего поворот на 180°, возвращаемый Direction преобразуется автоматически. Не смешивать системы координат в одном ходе.
             • api.askPoint() - блокирующий выбор точки кликом/попапом; null при отмене. Только обычная игра.
             • api.towards(x, y) - сначала X, затем Y; NONE при достижении. Стены не обходит.
             • api.towards(start, target) - ступеньки по прямой с исходным соотношением X:Y (точки BotInput.Point).
@@ -450,7 +451,7 @@ public final class TerritoryWarApp extends Application {
     private String getBot2DefaultCode() {
         return """
             var dirs = new ArrayList<>(Direction.MOVING);
-            Collections.shuffle(list, ThreadLocalRandom.current());
+            Collections.shuffle(dirs, ThreadLocalRandom.current());
             
             for (Direction dir : dirs) {
                 if (api.canMoveTo(dir)) return dir;

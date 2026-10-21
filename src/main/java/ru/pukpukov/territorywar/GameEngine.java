@@ -34,6 +34,8 @@ public final class GameEngine {
         final Bot logic;
         final Map<String, Object> memory = new HashMap<>();
         int x, y, tickCount, score = 1;
+        boolean normalizedCommands;
+        @Nullable BotAPI normalized;
 
         BotState(int id, int start, Bot logic) {
             this.id = id;
@@ -48,6 +50,13 @@ public final class GameEngine {
 
         @Override public BotAPI enemy() { return bots[2 - id]; }
         @Override public int get(int x, int y) { return inBounds(x, y) ? grid[x][y] : -1; }
+
+        @Override public BotAPI normalized() {
+            if (id == PLAYER_1) return this;
+            normalizedCommands = true;
+            if (normalized == null) normalized = new NormalizedBotAPI(this);
+            return normalized;
+        }
     }
 
     // Fixed initial order is also used by playback and parity tests.
@@ -77,6 +86,7 @@ public final class GameEngine {
 
     private int takeTurn(BotState bot) {
         Direction direction;
+        bot.normalizedCommands = false;
         try {
             direction = bot.logic.move(bot, bot.memory);
         } catch (BotInput.Failure | CancellationException e) {
@@ -85,6 +95,7 @@ public final class GameEngine {
             LOG.log(Level.WARNING, "Ошибка выполнения кода у Бота " + bot.id, e);
             direction = null;
         }
+        if (direction != null && bot.normalizedCommands) direction = direction.opposite();
         if (moves != null) moves.write(direction == null ? 0 : direction.ordinal() + 1);
         bot.tickCount++;
         if (direction == null) return 0;
