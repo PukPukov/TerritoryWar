@@ -8,8 +8,8 @@ public interface BotAPI {
     int x();
     int y();
     int get(int x, int y);
-    int nextX(Direction dir);
-    int nextY(Direction dir);
+    default int nextX(Direction dir) { return x() + dir.dx; }
+    default int nextY(Direction dir) { return y() + dir.dy; }
     
     default int next(Direction dir) {
         return get(nextX(dir), nextY(dir));

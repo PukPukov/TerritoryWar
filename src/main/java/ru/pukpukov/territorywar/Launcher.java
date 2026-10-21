@@ -1,8 +1,9 @@
 package ru.pukpukov.territorywar;
 
 public class Launcher {
-    public static void main(String[] args) {
-        // Просто вызываем main из основного класса
+    
+    static void main(String[] args) {
         TerritoryWarApp.main(args);
     }
+    
 }

@@ -1,150 +1,111 @@
 package ru.pukpukov.territorywar;
 
+import module java.base;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.scene.control.TextArea;
 import javafx.util.Duration;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.io.IOException;
-import java.nio.file.*;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import static ru.pukpukov.territorywar.api.Util.fnnul;
 
-public class CodeSyncManager {
-    
-    private static final Logger log = Logger.getLogger(CodeSyncManager.class.getName());
-    
-    private final TextArea area1;
-    private final TextArea area2;
-    private final Path path1 = Paths.get("bot1.java");
-    private final Path path2 = Paths.get("bot2.java");
-    
-    // КЭШ: Храним последний записанный НАМИ текст, чтобы отличать эхо от реальных внешних изменений
-    private final Map<Path, String> lastWrittenMap = new ConcurrentHashMap<>();
-    
-    public CodeSyncManager(TextArea area1, TextArea area2) {
-        this.area1 = area1;
-        this.area2 = area2;
+/** File state and editors are confined to the FX thread; the watcher only schedules reads. */
+public final class CodeSyncManager implements AutoCloseable {
+    private final Map<Path, TextArea> editors = new HashMap<>();
+    private final Map<Path, String> saved = new HashMap<>();
+    private final List<PauseTransition> timers = new ArrayList<>();
+    private final Consumer<Throwable> errors;
+    private @Nullable WatchService watcher;
+
+    public CodeSyncManager(Consumer<Throwable> errors) { this.errors = errors; }
+
+    public void bind(Path path, TextArea editor, String fallback) throws IOException {
+        assert Platform.isFxApplicationThread();
+        path = path.toAbsolutePath().normalize();
+        try { editor.setText(Files.readString(path)); }
+        catch (NoSuchFileException e) {
+            Files.writeString(path, fallback, StandardOpenOption.CREATE_NEW);
+            editor.setText(fallback);
+        }
+        editors.put(path, editor);
+        saved.put(path, normalize(editor.getText()));
+        Path file = path;
+        PauseTransition timer = new PauseTransition(Duration.millis(500));
+        timer.setOnFinished(e -> save(file, editor));
+        editor.textProperty().addListener((obs, old, value) -> timer.playFromStart());
+        timers.add(timer);
     }
-    
-    public void init(String defaultBot1, String defaultBot2) {
-        setupFileAndUI(path1, area1, defaultBot1);
-        setupFileAndUI(path2, area2, defaultBot2);
-        
-        setupUiListener(area1, path1);
-        setupUiListener(area2, path2);
-        
-        startFileWatcher();
-    }
-    
-    private void setupFileAndUI(Path path, TextArea area, String defaultCode) {
-        if (Files.exists(path)) {
+
+    private void save(Path path, TextArea editor) {
+        assert Platform.isFxApplicationThread();
+        String text = editor.getText();
+        if (normalize(text).equals(saved.get(path))) return;
+        try {
+            if (reload(path, editor)) return;
+            Path temporary = Files.createTempFile(fnnul(path.getParent()), ".territory-bot-", ".java");
             try {
-                String content = Files.readString(path);
-                lastWrittenMap.put(path, normalize(content));
-                area.setText(content);
-            } catch (IOException e) {
-                log.warning("Не удалось прочитать " + path.getFileName());
-                area.setText(defaultCode);
-                writeToFile(path, defaultCode);
-            }
-        } else {
-            area.setText(defaultCode);
-            writeToFile(path, defaultCode);
-        }
+                Files.writeString(temporary, text);
+                Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } finally { Files.deleteIfExists(temporary); }
+            saved.put(path, normalize(text));
+        } catch (IOException e) { errors.accept(e); }
     }
-    
-    private void setupUiListener(TextArea area, Path path) {
-        PauseTransition debounce = new PauseTransition(Duration.millis(500));
-        debounce.setOnFinished(e -> writeToFile(path, area.getText()));
-        
-        area.textProperty().addListener((obs, oldVal, newVal) -> {
-            // Перезапускаем таймер при каждом нажатии
-            debounce.playFromStart();
+
+    public void start() throws IOException {
+        assert Platform.isFxApplicationThread();
+        WatchService service = FileSystems.getDefault().newWatchService();
+        watcher = service;
+        Set<Path> directories = new HashSet<>();
+        for (Path path : editors.keySet()) directories.add(fnnul(path.getParent()));
+        for (Path dir : directories) dir.register(service, StandardWatchEventKinds.ENTRY_MODIFY, StandardWatchEventKinds.ENTRY_CREATE);
+        Thread.ofPlatform().daemon().name("bot-files").start(() -> {
+            try {
+                while (true) {
+                    WatchKey key = service.take();
+                    key.pollEvents();
+                    Platform.runLater(this::reload);
+                    if (!key.reset()) throw new IOException("Каталог ботов больше недоступен");
+                }
+            } catch (ClosedWatchServiceException e) {
+                // Normal shutdown via close().
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (IOException e) { Platform.runLater(() -> errors.accept(e)); }
         });
     }
-    
-    private void writeToFile(Path path, String content) {
-        try {
-            String normContent = normalize(content);
-            
-            if (Files.exists(path)) {
-                String currentFileContent = Files.readString(path);
-                if (normalize(currentFileContent).equals(normContent)) {
-                    return; // Текст не изменился, не пишем
-                }
-            }
-            
-            // ИСПРАВЛЕНИЕ: Запоминаем, что именно мы сейчас запишем в файл
-            lastWrittenMap.put(path, normContent);
-            Files.writeString(path, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            
-        } catch (IOException e) {
-            log.warning("Не удалось сохранить " + path.getFileName() + ": " + e.getMessage());
+
+    private void reload() {
+        assert Platform.isFxApplicationThread();
+        for (var entry : editors.entrySet()) {
+            try { reload(entry.getKey(), entry.getValue()); }
+            catch (IOException e) { errors.accept(e); }
         }
     }
-    
-    private void startFileWatcher() {
-        Thread watcherThread = new Thread(() -> {
-            try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-                Path dir = Paths.get("").toAbsolutePath();
-                dir.register(watchService, StandardWatchEventKinds.ENTRY_MODIFY);
-                
-                while (!Thread.currentThread().isInterrupted()) {
-                    WatchKey key = watchService.take();
-                    for (WatchEvent<?> event : key.pollEvents()) {
-                        Path changed = (Path) event.context();
-                        if (changed.getFileName().toString().equals(path1.getFileName().toString())) {
-                            updateUiFromFileSafe(path1, area1);
-                        } else if (changed.getFileName().toString().equals(path2.getFileName().toString())) {
-                            updateUiFromFileSafe(path2, area2);
-                        }
-                    }
-                    key.reset();
-                }
-            } catch (Exception e) {
-                log.log(Level.WARNING, "Ошибка слежения за файлами (File watcher)", e);
-            }
-        });
-        watcherThread.setDaemon(true);
-        watcherThread.start();
-    }
-    
-    private void updateUiFromFileSafe(Path path, TextArea area) {
-        // Микро-пауза, чтобы сторонний редактор успел отпустить lock файла
-        try { Thread.sleep(50); } catch (InterruptedException ignored) {}
-        
-        try {
-            String content = Files.readString(path);
-            String normContent = normalize(content);
-            
-            // ИСПРАВЛЕНИЕ: Если файл содержит то же самое, что мы сами туда только что записали - игнорируем событие (эхо-компенсация)
-            if (normContent.equals(lastWrittenMap.get(path))) {
-                return;
-            }
-            
-            Platform.runLater(() -> {
-                if (!normalize(area.getText()).equals(normContent)) {
-                    int caret = area.getCaretPosition();
-                    
-                    // Обновляем кэш, так как мы приняли изменения из стороннего редактора
-                    lastWrittenMap.put(path, normContent);
-                    
-                    area.setText(content);
-                    // Попытка восстановить позицию курсора
-                    area.positionCaret(Math.min(caret, content.length()));
-                }
-            });
-        } catch (IOException e) {
-            log.warning("Ошибка чтения обновленного файла " + path.getFileName());
+
+    // Shared by watcher and save: an external version must never silently erase local edits.
+    private boolean reload(Path path, TextArea editor) throws IOException {
+        String text = Files.readString(path);
+        String disk = normalize(text), local = normalize(editor.getText());
+        String previous = fnnul(saved.get(path));
+        if (disk.equals(previous)) return false;
+        if (!local.equals(previous) && !local.equals(disk)) {
+            Path backup = Files.createTempFile(fnnul(path.getParent()), path.getFileName() + ".conflict-", ".java");
+            Files.writeString(backup, editor.getText());
+            errors.accept(new IllegalStateException("Конфликт правок " + path + ": загружен файл с диска, локальный код сохранён в " + backup));
         }
+        saved.put(path, disk);
+        int caret = editor.getCaretPosition();
+        editor.setText(text);
+        editor.positionCaret(Math.min(caret, text.length()));
+        return true;
     }
-    
-    private String normalize(String text) {
-        if (text == null) return "";
-        // Приводим все типы переносов каретки к одному стандарту, чтобы сравнение не сбивалось
-        return text.replace("\r\n", "\n").replace("\r", "\n");
+
+    private static String normalize(String text) { return text.replace("\r\n", "\n").replace('\r', '\n'); }
+
+    @Override public void close() throws IOException {
+        assert Platform.isFxApplicationThread();
+        for (PauseTransition timer : timers) timer.stop();
+        for (var entry : editors.entrySet()) save(entry.getKey(), entry.getValue());
+        if (watcher != null) watcher.close();
     }
 }

@@ -1,163 +1,291 @@
 package ru.pukpukov.territorywar;
 
-import ru.pukpukov.territorywar.api.Bot;
+import module java.base;
 import javafx.animation.AnimationTimer;
 import javafx.application.Application;
-import javafx.application.Platform;
-import javafx.geometry.Insets;
-import javafx.geometry.Orientation;
-import javafx.geometry.Pos;
+import javafx.concurrent.Task;
+import javafx.geometry.*;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
-import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
-import javafx.stage.Modality;
-import javafx.stage.Stage;
+import javafx.stage.*;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import ru.pukpukov.territorywar.api.Bot;
 
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.stream.IntStream;
+import static ru.pukpukov.territorywar.api.Util.fnnul;
 
-public class TerritoryWarApp extends Application {
-    private static final Logger log = Logger.getLogger(TerritoryWarApp.class.getName());
-    
-    private static final int SIM_COUNT = 10000;
-    
-    private Canvas canvas;
-    private GraphicsContext gc;
-    private Label score1Label, score2Label, statusLabel;
-    private TextArea bot1CodeArea, bot2CodeArea;
-    private Slider speedSlider;
-    
-    private GameEngine visualGame;
-    private AnimationTimer gameLoop;
-    private long lastTickTime = 0;
-    
-    private Class<? extends Bot> currentBot1Class;
-    private Class<? extends Bot> currentBot2Class;
-    
-    private double cellSize = 10;
-    
-    private final Color COLOR_BOT1 = Color.web("#FF5A5A");
-    private final Color COLOR_TERR1 = Color.web("#FFBDBD");
-    private final Color COLOR_BOT2 = Color.web("#5A82FF");
-    private final Color COLOR_TERR2 = Color.web("#BDCFFF");
-    private final Color COLOR_GRID = Color.web("#e0e0e0");
-    
-    @Override
-    public void start(Stage primaryStage) {
-        primaryStage.setTitle("Territory War");
-        
-        // --- ЛЕВАЯ ПАНЕЛЬ (ИГРА) ---
-        VBox gamePanel = new VBox(15);
-        gamePanel.setAlignment(Pos.CENTER);
-        gamePanel.setPadding(new Insets(10));
-        gamePanel.setStyle("-fx-background-color: #FAFAFA;");
-        
-        HBox scoreBoard = new HBox(40);
-        scoreBoard.setAlignment(Pos.CENTER);
-        score1Label = createScoreLabel("Бот 1: 1", COLOR_BOT1);
-        score2Label = createScoreLabel("Бот 2: 1", COLOR_BOT2);
-        statusLabel = new Label("Ожидание...");
-        statusLabel.setFont(Font.font("System", 16));
-        scoreBoard.getChildren().addAll(score1Label, statusLabel, score2Label);
-        
-        canvas = new Canvas(0, 0);
-        gc = canvas.getGraphicsContext2D();
-        StackPane canvasContainer = new StackPane(canvas);
-        canvasContainer.setStyle("-fx-border-color: #ccc; -fx-border-width: 2px; -fx-background-color: white;");
-        VBox.setVgrow(canvasContainer, Priority.ALWAYS);
-        
-        canvasContainer.widthProperty().addListener((obs, oldVal, newVal) -> resizeCanvas(canvasContainer));
-        canvasContainer.heightProperty().addListener((obs, oldVal, newVal) -> resizeCanvas(canvasContainer));
-        
-        HBox controls = new HBox(10);
-        controls.setAlignment(Pos.CENTER);
-        Button btnStart = new Button("▶ Старт");
-        Button btnPause = new Button("Пауза");
-        Button btnReset = new Button("Сброс");
-        speedSlider = new Slider(0, 100, 50);
-        speedSlider.setPrefWidth(120);
-        
-        Button btnSim = new Button(SIM_COUNT + " симуляций");
-        btnSim.setStyle("-fx-base: #9b59b6; -fx-text-fill: white;");
-        
-        controls.getChildren().addAll(btnStart, btnPause, btnReset, new Label("Скорость:"), speedSlider, btnSim);
-        gamePanel.getChildren().addAll(scoreBoard, canvasContainer, controls);
-        
-        // --- ПРАВАЯ ПАНЕЛЬ (ПРАВИЛА И КОД) ---
-        VBox editorsPanel = new VBox(10);
-        editorsPanel.setPadding(new Insets(10));
-        
-        TitledPane rulesPane = createRulesPane();
-        
-        // Создаем пустые поля, текст подтянется из файлов
-        bot1CodeArea = createCodeArea("");
-        bot2CodeArea = createCodeArea("");
-        
-        VBox box1 = new VBox(5, createScoreLabel("Код Бота 1 (Красный)", COLOR_BOT1), bot1CodeArea);
-        VBox box2 = new VBox(5, createScoreLabel("Код Бота 2 (Синий)", COLOR_BOT2), bot2CodeArea);
-        
-        VBox.setVgrow(box1, Priority.ALWAYS);
-        VBox.setVgrow(box2, Priority.ALWAYS);
-        
-        SplitPane codeSplit = new SplitPane(box1, box2);
-        codeSplit.setOrientation(Orientation.VERTICAL);
-        VBox.setVgrow(codeSplit, Priority.ALWAYS);
-        
-        editorsPanel.getChildren().addAll(rulesPane, codeSplit);
-        
-        // --- ГЛАВНЫЙ SPLIT PANE ---
-        SplitPane mainSplit = new SplitPane(gamePanel, editorsPanel);
-        mainSplit.setDividerPositions(0.55);
-        
-        btnStart.setOnAction(e -> startGame());
-        btnPause.setOnAction(e -> pauseGame());
-        btnReset.setOnAction(e -> resetGame());
-        btnSim.setOnAction(e -> runParallelSimulations(primaryStage));
-        
-        setupGameLoop();
-        
-        // --- АВТОСИНХРОНИЗАЦИЯ КОДА С ДИСКОМ ---
-        CodeSyncManager syncManager = new CodeSyncManager(bot1CodeArea, bot2CodeArea);
-        syncManager.init(getBot1DefaultCode(), getBot2DefaultCode());
-        
-        Scene scene = new Scene(mainSplit, 1100, 700);
-        primaryStage.setScene(scene);
-        primaryStage.setMinWidth(800);
-        primaryStage.setMinHeight(500);
-        primaryStage.show();
+public final class TerritoryWarApp extends Application {
+    private static final Color[] BOT_COLORS = {Color.web("#FF5A5A"), Color.web("#5A82FF")};
+    private static final Color[] TERRITORY_COLORS = {Color.web("#FFBDBD"), Color.web("#BDCFFF")};
+    private final Canvas canvas = new Canvas();
+    private final Label[] scores = {new Label(), new Label()};
+    private final Label status = new Label("Ожидание...");
+    private final TextArea[] code = {new TextArea(), new TextArea()};
+    private final Slider speed = new Slider(0, 100, 50);
+    private final TextField count = new TextField("10000");
+    private final ComboBox<String> winner = new ComboBox<>();
+    private final Button watch = new Button("Смотреть запись");
+    private final CodeSyncManager sync = new CodeSyncManager(TerritoryWarApp::showError);
+    private @Nullable GameEngine game;
+    private @Nullable GameReplay replay;
+    private boolean playingReplay;
+    private double cellSize;
+
+    private final AnimationTimer loop = new AnimationTimer() {
+        private long lastUpdate, accumulated;
+
+        @Override public void start() {
+            lastUpdate = accumulated = 0;
+            super.start();
+        }
+
+        @Override public void handle(long now) {
+            GameEngine current = game;
+            if (current == null || current.isGameOver()) return;
+            if (lastUpdate == 0) lastUpdate = now;
+            accumulated += now - lastUpdate;
+            lastUpdate = now;
+            long nsPerTick = (long) (1_000_000_000 / (2 * Math.pow(1500, speed.getValue() / 100)));
+            int ticks = 0;
+            while (accumulated >= nsPerTick && ticks < 100 && !current.isGameOver()) {
+                current.logicTick();
+                accumulated -= nsPerTick;
+                ticks++;
+            }
+            if (ticks == 100) accumulated = 0;
+            if (ticks > 0) refresh();
+            if (current.isGameOver()) {
+                stop();
+                status.setText((playingReplay ? "Запись: " : "") + (current.winner() == 0 ? "Ничья!" : "Победил Бот " + current.winner()));
+            }
+        }
+    };
+
+    @Override public void start(Stage stage) throws IOException {
+        stage.setTitle("Territory War");
+        SplitPane split = new SplitPane(gamePanel(stage), editors());
+        split.setDividerPositions(0.55);
+        stage.setScene(new Scene(split, 1100, 700));
+        stage.setMinWidth(800);
+        stage.setMinHeight(500);
+        sync.bind(Paths.get("bot1.java"), code[0], getBot1DefaultCode());
+        sync.bind(Paths.get("bot2.java"), code[1], getBot2DefaultCode());
+        sync.start();
+        stage.show();
+        refresh();
     }
-    
-    private void resizeCanvas(Pane container) {
-        double w = container.getWidth() - 10;
-        double h = container.getHeight() - 10;
-        if (w <= 0 || h <= 0) return;
-        
-        cellSize = Math.floor(Math.min(w / GameEngine.COLS, h / GameEngine.ROWS));
+
+    @Override public void stop() throws IOException {
+        loop.stop();
+        sync.close();
+    }
+
+    private Pane gamePanel(Stage stage) {
+        HBox scoreboard = new HBox(25, scores[0], status, scores[1]);
+        scoreboard.setAlignment(Pos.CENTER);
+        for (int i = 0; i < scores.length; i++) scores[i].setTextFill(BOT_COLORS[i]);
+        StackPane field = new StackPane(canvas);
+        field.setStyle("-fx-border-color: #ccc; -fx-background-color: white;");
+        field.widthProperty().addListener((obs, old, value) -> resize(field));
+        field.heightProperty().addListener((obs, old, value) -> resize(field));
+        VBox.setVgrow(field, Priority.ALWAYS);
+        speed.setPrefWidth(120);
+        count.setPrefColumnCount(7);
+        count.setId("simulation-count");
+        winner.getItems().setAll("Бот 1", "Бот 2");
+        winner.getSelectionModel().selectFirst();
+        watch.setDisable(true);
+        watch.setOnAction(e -> {
+            pause();
+            playingReplay = true;
+            game = fnnul(replay).newGame();
+            refresh();
+            startGame();
+        });
+        VBox panel = new VBox(10, scoreboard, field,
+            row(button("▶ Старт", this::startGame), button("Пауза", this::pause), button("Сброс", () -> {
+                pause();
+                game = null;
+                playingReplay = false;
+                status.setText("Ожидание...");
+                refresh();
+            }), new Label("Скорость:"), speed),
+            row(new Label("Число игр:"), count, button("Симулировать", () -> simulate(stage, 0))),
+            row(new Label("Победа:"), winner, button("Искать победу", () -> simulate(stage, winner.getSelectionModel().getSelectedIndex() + 1)), watch));
+        panel.setPadding(new Insets(10));
+        panel.setStyle("-fx-background-color: #FAFAFA;");
+        return panel;
+    }
+
+    private Pane editors() {
+        VBox[] boxes = new VBox[code.length];
+        for (int i = 0; i < code.length; i++) {
+            code[i].setFont(Font.font("Monospaced", 14));
+            VBox.setVgrow(code[i], Priority.ALWAYS);
+            Label label = new Label("Код Бота " + (i + 1));
+            label.setTextFill(BOT_COLORS[i]);
+            boxes[i] = new VBox(5, label, code[i]);
+        }
+        SplitPane split = new SplitPane(boxes);
+        split.setOrientation(Orientation.VERTICAL);
+        VBox.setVgrow(split, Priority.ALWAYS);
+        VBox panel = new VBox(10, createRulesPane(), split);
+        panel.setPadding(new Insets(10));
+        return panel;
+    }
+
+    private static FlowPane row(Node... nodes) {
+        FlowPane row = new FlowPane(8, 8, nodes);
+        row.setAlignment(Pos.CENTER);
+        return row;
+    }
+
+    private static Button button(String text, Runnable action) {
+        Button button = new Button(text);
+        button.setOnAction(e -> action.run());
+        return button;
+    }
+
+    private @Nullable Simulations compileBots() {
+        List<Class<? extends Bot>> compiled = new ArrayList<>();
+        for (int i = 0; i < code.length; i++) {
+            try {
+                compiled.add(BotCompiler.compile(code[i].getText()));
+            } catch (RuntimeException e) {
+                showError(new IllegalArgumentException("Ошибка компиляции Бота " + (i + 1), e));
+                return null;
+            }
+        }
+        return new Simulations(compiled.get(0), compiled.get(1));
+    }
+
+    private void startGame() {
+        if (game == null || game.isGameOver()) {
+            if (playingReplay) {
+                game = fnnul(replay).newGame();
+            } else {
+                Simulations bots = compileBots();
+                if (bots == null) return;
+                try { game = bots.newGame(false); }
+                catch (RuntimeException e) { showError(e); return; }
+            }
+            refresh();
+        }
+        status.setText(playingReplay ? "Просмотр записи..." : "Игра идёт...");
+        loop.start();
+    }
+
+    private void pause() {
+        loop.stop();
+        if (game != null && !game.isGameOver()) status.setText(playingReplay ? "Запись: пауза" : "Пауза");
+    }
+
+    private void resize(Pane field) {
+        cellSize = Math.max(0, Math.floor(Math.min((field.getWidth() - 10) / GameEngine.COLS, (field.getHeight() - 10) / GameEngine.ROWS)));
         canvas.setWidth(cellSize * GameEngine.COLS);
         canvas.setHeight(cellSize * GameEngine.ROWS);
-        drawGame();
+        refresh();
     }
-    
-    private Label createScoreLabel(String text, Color color) {
-        Label label = new Label(text);
-        label.setTextFill(color);
-        label.setFont(Font.font("System", 16));
-        return label;
+
+    private void refresh() {
+        var gc = canvas.getGraphicsContext2D();
+        gc.setFill(Color.WHITE);
+        gc.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
+        gc.setStroke(Color.web("#e0e0e0"));
+        gc.setLineWidth(1);
+        for (int x = 0; x <= GameEngine.COLS; x++) gc.strokeLine(x * cellSize, 0, x * cellSize, canvas.getHeight());
+        for (int y = 0; y <= GameEngine.ROWS; y++) gc.strokeLine(0, y * cellSize, canvas.getWidth(), y * cellSize);
+        GameEngine current = game;
+        if (current != null) {
+            int[][] grid = current.grid();
+            for (int x = 0; x < GameEngine.COLS; x++) for (int y = 0; y < GameEngine.ROWS; y++) {
+                int owner = grid[x][y];
+                if (owner == GameEngine.EMPTY) continue;
+                gc.setFill(TERRITORY_COLORS[owner - 1]);
+                gc.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+            }
+        }
+        for (int i = 0; i < scores.length; i++) {
+            scores[i].setText("Бот " + (i + 1) + ": " + (current == null ? 1 : current.score(i + 1)));
+            if (current == null) continue;
+            var bot = current.bot(i + 1);
+            gc.setFill(BOT_COLORS[i]);
+            gc.fillRect(bot.x() * cellSize, bot.y() * cellSize, cellSize, cellSize);
+        }
     }
-    
-    private TextArea createCodeArea(String text) {
-        TextArea area = new TextArea(text);
-        area.setFont(Font.font("Monospaced", 14));
-        VBox.setVgrow(area, Priority.ALWAYS);
-        return area;
+
+    private void simulate(Stage owner, int target) {
+        int games = 0;
+        if (target == 0) {
+            try {
+                games = Integer.parseInt(count.getText().strip());
+                if (games <= 0) throw new NumberFormatException();
+            } catch (NumberFormatException e) {
+                showError(new IllegalArgumentException("Число игр должно быть целым от 1 до " + Integer.MAX_VALUE));
+                return;
+            }
+        }
+        pause();
+        Simulations bots = compileBots();
+        if (bots == null) return;
+        final int limit = games;
+        Task<Simulations.Result> task = new Task<>() {
+            @Override protected Simulations.Result call() {
+                return bots.run(limit, target, this::isCancelled, done -> {
+                    updateMessage("Завершено игр: " + done);
+                    updateProgress(target == 0 ? done : -1, limit);
+                });
+            }
+        };
+        Stage dialog = new Stage();
+        dialog.initOwner(owner);
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.setTitle(target == 0 ? "Симуляция " + limit + " игр" : "Поиск победы Бота " + target);
+        Label message = new Label("Запуск...");
+        message.textProperty().bind(task.messageProperty());
+        ProgressBar progress = new ProgressBar(target == 0 ? 0 : -1);
+        progress.progressProperty().bind(task.progressProperty());
+        VBox panel = new VBox(15, message, progress, button("Отмена", () -> task.cancel(true)));
+        panel.setAlignment(Pos.CENTER);
+        panel.setPadding(new Insets(20));
+        dialog.setScene(new Scene(panel, 330, 150));
+        dialog.setOnCloseRequest(e -> task.cancel(true));
+        task.setOnCancelled(e -> dialog.close());
+        task.setOnFailed(e -> { dialog.close(); showError(task.getException()); });
+        task.setOnSucceeded(e -> {
+            dialog.close();
+            Simulations.Result result = task.getValue();
+            if (result.replay() != null) {
+                replay = result.replay();
+                watch.setDisable(false);
+            }
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.initOwner(owner);
+            alert.setTitle("Результаты " + result.count() + " игр");
+            alert.setHeaderText(target == 0 ? "Симуляция завершена" : "Победа найдена — запись готова к просмотру");
+            alert.setContentText("Бот 1: " + result.wins1() + " побед\nБот 2: " + result.wins2() + " побед\nНичьих: " + result.draws());
+            alert.show();
+        });
+        dialog.show();
+        Thread.ofPlatform().daemon().name("simulations").start(task);
     }
-    
+
+    private static void showError(Throwable error) {
+        var text = new StringWriter();
+        error.printStackTrace(new PrintWriter(text));
+        TextArea details = new TextArea(text.toString());
+        details.setEditable(false);
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setHeaderText(error.toString());
+        alert.getDialogPane().setExpandableContent(details);
+        alert.getDialogPane().setExpanded(true);
+        alert.show();
+    }
+
     private TitledPane createRulesPane() {
         TextArea rulesText = new TextArea("""
             ПРАВИЛА ИГРЫ
@@ -192,256 +320,6 @@ public class TerritoryWarApp extends Application {
         TitledPane pane = new TitledPane("Правила и API (нажмите, чтобы свернуть/развернуть)", rulesText);
         pane.setExpanded(true);
         return pane;
-    }
-    
-    private void setupGameLoop() {
-        gameLoop = new AnimationTimer() {
-            private long lastUpdate = 0;
-            private long accumulatedTime = 0;
-            
-            @Override
-            public void handle(long now) {
-                if (lastUpdate == 0) {
-                    lastUpdate = now;
-                    return;
-                }
-                
-                long elapsedNs = now - lastUpdate;
-                lastUpdate = now;
-                
-                // Нормализуем значение ползунка от 0.0 до 1.0
-                double v = speedSlider.getValue() / 100.0;
-                
-                // Экспоненциальный рост: от 2 до 3000 ходов в секунду.
-                // На 50% скорости это будет плавно (около 75 ходов/сек).
-                double ticksPerSecond = 2.0 * Math.pow(1500.0, v);
-                long nsPerTick = (long) (1_000_000_000.0 / ticksPerSecond);
-                
-                accumulatedTime += elapsedNs;
-                
-                int ticksRan = 0;
-                // Разрешаем выполнять несколько логических шагов за один кадр отрисовки
-                // Ограничиваем 100 шагами за кадр, чтобы игра не зависла
-                while (accumulatedTime >= nsPerTick && ticksRan < 100) {
-                    if (visualGame != null && !visualGame.isGameOver()) {
-                        visualGame.logicTick();
-                        ticksRan++;
-                    }
-                    accumulatedTime -= nsPerTick;
-                }
-                
-                // Сбрасываем излишки времени при сильных лагах
-                if (ticksRan == 100) {
-                    accumulatedTime = 0;
-                }
-                
-                // Перерисовываем графику, только если состояние игры изменилось
-                if (ticksRan > 0) {
-                    drawGame();
-                    updateScoreUI();
-                    if (visualGame != null && visualGame.isGameOver()) {
-                        pauseGame();
-                        int winner = visualGame.getWinner();
-                        statusLabel.setText(winner == 0 ? "Ничья!" : "Победил Бот " + winner);
-                    }
-                }
-            }
-            
-            // Гарантируем чистый старт после паузы
-            @Override
-            public void start() {
-                lastUpdate = 0;
-                accumulatedTime = 0;
-                super.start();
-            }
-        };
-    }
-    
-    private boolean compileBots() {
-        currentBot1Class = tryCompile("1", bot1CodeArea.getText());
-        if (currentBot1Class == null) return false;
-        currentBot2Class = tryCompile("2", bot2CodeArea.getText());
-        if (currentBot2Class == null) return false;
-        return true;
-    }
-    
-    private Class<? extends Bot> tryCompile(String botName, String text) {
-        String className = BotCompiler.className();
-        String sourceCode = BotCompiler.sourceCode(className, text);
-        try {
-            return BotCompiler.compileBot(className, sourceCode);
-        } catch (Exception exception) {
-            StringBuilder fullCode = new StringBuilder();
-            int i = 1;
-            for (var line : sourceCode.lines().toList()) {
-                fullCode.append(i);
-                fullCode.append(": ");
-                fullCode.append(line);
-                fullCode.append("\n");
-                i++;
-            }
-            showErrorDialog("Ошибка компиляции бота "+botName, exception.getClass().getCanonicalName()+"\n"+exception.getMessage()+"\n"+fullCode);
-        }
-        return null;
-    }
-    
-    private void showErrorDialog(String header, String content) {
-        Alert alert = new Alert(Alert.AlertType.ERROR);
-        alert.setHeaderText(header);
-        TextArea textArea = new TextArea(content);
-        textArea.setEditable(false);
-        textArea.setWrapText(true);
-        textArea.setMaxWidth(Double.MAX_VALUE);
-        textArea.setMaxHeight(Double.MAX_VALUE);
-        alert.getDialogPane().setExpandableContent(textArea);
-        alert.getDialogPane().setExpanded(true);
-        alert.show();
-    }
-    
-    private void startGame() {
-        if (visualGame == null || visualGame.isGameOver()) {
-            if (!compileBots()) return;
-            try {
-                visualGame = new GameEngine(
-                    currentBot1Class.getDeclaredConstructor().newInstance(),
-                    currentBot2Class.getDeclaredConstructor().newInstance()
-                );
-            } catch (Exception e) {
-                log.log(Level.SEVERE, "Не удалось инстанцировать ботов", e);
-                return;
-            }
-        }
-        statusLabel.setText("Игра идет...");
-        gameLoop.start();
-    }
-    
-    private void pauseGame() {
-        gameLoop.stop();
-        if (visualGame != null && !visualGame.isGameOver()) {
-            statusLabel.setText("Пауза");
-        }
-    }
-    
-    private void resetGame() {
-        pauseGame();
-        visualGame = null;
-        statusLabel.setText("Ожидание...");
-        score1Label.setText("Бот 1: 1");
-        score2Label.setText("Бот 2: 1");
-        drawEmptyGrid();
-    }
-    
-    private void drawEmptyGrid() {
-        gc.setFill(Color.WHITE);
-        gc.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
-        
-        gc.setStroke(COLOR_GRID);
-        gc.setLineWidth(1.0);
-        for (int i = 0; i <= GameEngine.COLS; i++) {
-            gc.strokeLine(i * cellSize, 0, i * cellSize, canvas.getHeight());
-            gc.strokeLine(0, i * cellSize, canvas.getWidth(), i * cellSize);
-        }
-    }
-    
-    private void drawGame() {
-        drawEmptyGrid();
-        if (visualGame == null) return;
-        
-        int[][] grid = visualGame.getGrid();
-        for (int x = 0; x < GameEngine.COLS; x++) {
-            for (int y = 0; y < GameEngine.ROWS; y++) {
-                if (grid[x][y] == GameEngine.PLAYER_1) {
-                    gc.setFill(COLOR_TERR1);
-                    gc.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
-                } else if (grid[x][y] == GameEngine.PLAYER_2) {
-                    gc.setFill(COLOR_TERR2);
-                    gc.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
-                }
-            }
-        }
-        
-        gc.setFill(COLOR_BOT1);
-        gc.fillRect(visualGame.getBot1X() * cellSize, visualGame.getBot1Y() * cellSize, cellSize, cellSize);
-        
-        gc.setFill(COLOR_BOT2);
-        gc.fillRect(visualGame.getBot2X() * cellSize, visualGame.getBot2Y() * cellSize, cellSize, cellSize);
-    }
-    
-    private void updateScoreUI() {
-        if (visualGame != null) {
-            score1Label.setText("Бот 1: " + visualGame.getScore1());
-            score2Label.setText("Бот 2: " + visualGame.getScore2());
-        }
-    }
-    
-    private void runParallelSimulations(Stage parentWindow) {
-        pauseGame();
-        if (!compileBots()) return;
-        
-        Stage simStage = new Stage();
-        simStage.initOwner(parentWindow);
-        simStage.initModality(Modality.APPLICATION_MODAL);
-        simStage.setTitle("Симуляция " + SIM_COUNT + " игр");
-        
-        VBox vbox = new VBox(15);
-        vbox.setPadding(new Insets(20));
-        vbox.setAlignment(Pos.CENTER);
-        ProgressBar progressBar = new ProgressBar(0);
-        progressBar.setPrefWidth(250);
-        vbox.getChildren().addAll(new Label("Идет симуляция в фоне..."), progressBar);
-        
-        simStage.setScene(new Scene(vbox, 300, 100));
-        simStage.show();
-        
-        AtomicInteger progress = new AtomicInteger(0);
-        
-        Thread simThread = new Thread(() -> {
-            long[] results = IntStream.range(0, SIM_COUNT)
-                .parallel()
-                .mapToLong(i -> {
-                    try {
-                        GameEngine engine = new GameEngine(
-                            currentBot1Class.getDeclaredConstructor().newInstance(),
-                            currentBot2Class.getDeclaredConstructor().newInstance()
-                        );
-                        
-                        while (!engine.isGameOver()) {
-                            engine.logicTick();
-                        }
-                        
-                        int finishedCount = progress.incrementAndGet();
-                        Platform.runLater(() -> progressBar.setProgress((double) finishedCount / SIM_COUNT));
-                        
-                        return engine.getWinner();
-                    } catch (Exception e) {
-                        return -1;
-                    }
-                })
-                .toArray();
-            
-            int w1 = 0, w2 = 0, draws = 0;
-            for (long r : results) {
-                if (r == 1) w1++;
-                else if (r == 2) w2++;
-                else if (r == 0) draws++;
-            }
-            
-            final int fw1 = w1, fw2 = w2, fdraws = draws;
-            Platform.runLater(() -> {
-                simStage.close();
-                showSimResults(fw1, fw2, fdraws);
-            });
-        });
-        simThread.setDaemon(true);
-        simThread.start();
-    }
-    
-    private void showSimResults(int w1, int w2, int draws) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("Результаты " + SIM_COUNT + " симуляций");
-        alert.setHeaderText("Битва алгоритмов завершена");
-        alert.setContentText(String.format("Бот 1 (Красный) победил: %d раз\nБот 2 (Синий) победил: %d раз\nНичья: %d раз", w1, w2, draws));
-        alert.show();
     }
     
     private String getBot1DefaultCode() {
@@ -480,7 +358,5 @@ public class TerritoryWarApp extends Application {
             """;
     }
     
-    public static void main(String[] args) {
-        launch(args);
-    }
+    public static void main(String[] args) { launch(args); }
 }
